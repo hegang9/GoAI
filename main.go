@@ -2,6 +2,7 @@ package main
 
 import (
 	"GopherAI/common/aihelper"
+	"GopherAI/common/logger"
 	"GopherAI/common/mysql"
 	"GopherAI/common/rabbitmq"
 	"GopherAI/common/redis"
@@ -9,7 +10,6 @@ import (
 	"GopherAI/dao/message"
 	"GopherAI/router"
 	"fmt"
-	"log"
 )
 
 func StartServer(addr string, port int) error {
@@ -37,25 +37,26 @@ func readDataFromDB() error {
 		// 创建对应的 AIHelper
 		helper, err := manager.GetOrCreateAIHelper(m.UserName, m.SessionID, modelType, config)
 		if err != nil {
-			log.Printf("[readDataFromDB] failed to create helper for user=%s session=%s: %v", m.UserName, m.SessionID, err)
+			logger.Error("readDataFromDB failed to create helper", "user", m.UserName, "session", m.SessionID, "err", err)
 			continue
 		}
-		log.Println("readDataFromDB init:  ", helper.SessionID)
+		logger.Debug("readDataFromDB init", "session", helper.SessionID)
 		// 添加消息到内存中(不开启存储功能)
 		helper.AddMessage(m.Content, m.UserName, m.IsUser, false)
 	}
 
-	log.Println("AIHelperManager init success ")
+	logger.Info("AIHelperManager init success")
 	return nil
 }
 
 func main() {
+	logger.Init()
 	conf := config.GetConfig()
 	host := conf.MainConfig.Host
 	port := conf.MainConfig.Port
 	//初始化mysql
 	if err := mysql.InitMysql(); err != nil {
-		log.Println("InitMysql error , " + err.Error())
+		logger.Error("InitMysql error", "err", err)
 		return
 	}
 	//初始化AIHelperManager
@@ -63,12 +64,12 @@ func main() {
 
 	//初始化redis
 	redis.Init()
-	log.Println("redis init success  ")
+	logger.Info("redis init success")
 	rabbitmq.InitRabbitMQ()
-	log.Println("rabbitmq init success  ")
+	logger.Info("rabbitmq init success")
 
 	err := StartServer(host, port) // 启动 HTTP 服务
 	if err != nil {
-		panic(err)
+		logger.Fatal("StartServer failed", "err", err)
 	}
 }

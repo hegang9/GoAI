@@ -8,16 +8,16 @@ authcode = "your authcode "
 email = "your qq email"
 
 [redisConfig]
-host = "127.0.0.1"
+host = "192.169.71.109"
 port = 6379
 password = ""
 db = 0
 
 [mysqlConfig]
-host = "127.0.0.1"
+host = "192.169.71.109"
 port = 3306
-user = "root"
-password = "123456"
+user = "hegang"
+password = "hg200512hg"
 databaseName = "GopherAI"
 charset =  "utf8mb4"
 

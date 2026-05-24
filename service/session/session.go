@@ -3,10 +3,10 @@ package session
 import (
 	"GopherAI/common/aihelper"
 	"GopherAI/common/code"
+	"GopherAI/common/logger"
 	"GopherAI/dao/session"
 	"GopherAI/model"
 	"context"
-	"log"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -41,7 +41,7 @@ func CreateSessionAndSendMessage(userName string, userQuestion string, modelType
 	}
 	createdSession, err := session.CreateSession(newSession)
 	if err != nil {
-		log.Println("CreateSessionAndSendMessage CreateSession error:", err)
+		logger.Error("CreateSessionAndSendMessage CreateSession", "err", err)
 		return "", "", code.CodeServerBusy
 	}
 
@@ -53,14 +53,14 @@ func CreateSessionAndSendMessage(userName string, userQuestion string, modelType
 	}
 	helper, err := manager.GetOrCreateAIHelper(userName, createdSession.ID, modelType, config)
 	if err != nil {
-		log.Println("CreateSessionAndSendMessage GetOrCreateAIHelper error:", err)
+		logger.Error("CreateSessionAndSendMessage GetOrCreateAIHelper", "err", err)
 		return "", "", code.AIModelFail
 	}
 
 	//3：生成AI回复
 	aiResponse, err_ := helper.GenerateResponse(userName, ctx, userQuestion)
 	if err_ != nil {
-		log.Println("CreateSessionAndSendMessage GenerateResponse error:", err_)
+		logger.Error("CreateSessionAndSendMessage GenerateResponse", "err", err_)
 		return "", "", code.AIModelFail
 	}
 
@@ -75,7 +75,7 @@ func CreateStreamSessionOnly(userName string, userQuestion string) (string, code
 	}
 	createdSession, err := session.CreateSession(newSession)
 	if err != nil {
-		log.Println("CreateStreamSessionOnly CreateSession error:", err)
+		logger.Error("CreateStreamSessionOnly CreateSession", "err", err)
 		return "", code.CodeServerBusy
 	}
 	return createdSession.ID, code.CodeSuccess
@@ -85,7 +85,7 @@ func StreamMessageToExistingSession(userName string, sessionID string, userQuest
 	// 确保 writer 支持 Flush
 	flusher, ok := writer.(http.Flusher)
 	if !ok {
-		log.Println("StreamMessageToExistingSession: streaming unsupported")
+		logger.Error("StreamMessageToExistingSession: streaming unsupported")
 		return code.CodeServerBusy
 	}
 
@@ -96,32 +96,32 @@ func StreamMessageToExistingSession(userName string, sessionID string, userQuest
 	}
 	helper, err := manager.GetOrCreateAIHelper(userName, sessionID, modelType, config)
 	if err != nil {
-		log.Println("StreamMessageToExistingSession GetOrCreateAIHelper error:", err)
+		logger.Error("StreamMessageToExistingSession GetOrCreateAIHelper", "err", err)
 		return code.AIModelFail
 	}
 
 	cb := func(msg string) {
 		// 直接发送数据，不转义
 		// SSE 格式：data: <content>\n\n
-		log.Printf("[SSE] Sending chunk: %s (len=%d)\n", msg, len(msg))
+		logger.Debug("SSE sending chunk", "content", msg, "len", len(msg))
 		_, err := writer.Write([]byte("data: " + msg + "\n\n"))
 		if err != nil {
-			log.Println("[SSE] Write error:", err)
+			logger.Error("SSE write error", "err", err)
 			return
 		}
 		flusher.Flush() //  每次必须 flush
-		log.Println("[SSE] Flushed")
+		logger.Debug("SSE flushed")
 	}
 
 	_, err_ := helper.StreamResponse(userName, ctx, cb, userQuestion)
 	if err_ != nil {
-		log.Println("StreamMessageToExistingSession StreamResponse error:", err_)
+		logger.Error("StreamMessageToExistingSession StreamResponse", "err", err_)
 		return code.AIModelFail
 	}
 
 	_, err = writer.Write([]byte("data: [DONE]\n\n"))
 	if err != nil {
-		log.Println("StreamMessageToExistingSession write DONE error:", err)
+		logger.Error("StreamMessageToExistingSession write DONE", "err", err)
 		return code.AIModelFail
 	}
 	flusher.Flush()
@@ -153,14 +153,14 @@ func ChatSend(userName string, sessionID string, userQuestion string, modelType 
 	}
 	helper, err := manager.GetOrCreateAIHelper(userName, sessionID, modelType, config)
 	if err != nil {
-		log.Println("ChatSend GetOrCreateAIHelper error:", err)
+		logger.Error("ChatSend GetOrCreateAIHelper", "err", err)
 		return "", code.AIModelFail
 	}
 
 	//2：生成AI回复
 	aiResponse, err_ := helper.GenerateResponse(userName, ctx, userQuestion)
 	if err_ != nil {
-		log.Println("ChatSend GenerateResponse error:", err_)
+		logger.Error("ChatSend GenerateResponse", "err", err_)
 		return "", code.AIModelFail
 	}
 

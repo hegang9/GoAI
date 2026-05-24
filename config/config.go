@@ -14,7 +14,7 @@
 package config
 
 import (
-	"log"
+	"GopherAI/common/logger"
 
 	"github.com/BurntSushi/toml" // BurntSushi/toml：Go 语言中最常用的 TOML 解析库
 )
@@ -147,7 +147,7 @@ func initConfig() error {
 		config = new(Config)
 	}
 	if _, err := toml.DecodeFile("config/config.toml", config); err != nil {
-		log.Fatal(err.Error())
+		logger.Fatal("config decode failed", "err", err)
 		return err
 	}
 	return nil

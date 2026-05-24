@@ -1,13 +1,13 @@
 package aihelper
 
 import (
+	"GopherAI/common/logger"
 	"GopherAI/common/rag"
 	"GopherAI/config"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"strings"
 
@@ -168,7 +168,7 @@ func (o *AliRAGModel) GenerateResponse(ctx context.Context, messages []*schema.M
 	// 1. 创建 RAG 查询器
 	ragQuery, err := rag.NewRAGQuery(ctx, o.username)
 	if err != nil {
-		log.Printf("Failed to create RAG query (user may not have uploaded file): %v", err)
+		logger.Warn("Failed to create RAG query, user may not have uploaded file", "err", err)
 		// 如果用户没有上传文件，直接使用原始问题
 		resp, err := o.llm.Generate(ctx, messages)
 		if err != nil {
@@ -187,7 +187,7 @@ func (o *AliRAGModel) GenerateResponse(ctx context.Context, messages []*schema.M
 	// 3. 检索相关文档
 	docs, err := ragQuery.RetrieveDocuments(ctx, query)
 	if err != nil {
-		log.Printf("Failed to retrieve documents: %v", err)
+		logger.Warn("Failed to retrieve documents", "err", err)
 		// 检索失败，使用原始问题
 		resp, err := o.llm.Generate(ctx, messages)
 		if err != nil {
@@ -219,7 +219,7 @@ func (o *AliRAGModel) StreamResponse(ctx context.Context, messages []*schema.Mes
 	// 1. 创建 RAG 查询器
 	ragQuery, err := rag.NewRAGQuery(ctx, o.username)
 	if err != nil {
-		log.Printf("Failed to create RAG query (user may not have uploaded file): %v", err)
+		logger.Warn("Failed to create RAG query, user may not have uploaded file", "err", err)
 		// 如果用户没有上传文件，直接使用原始问题
 		return o.streamWithoutRAG(ctx, messages, cb)
 	}
@@ -234,7 +234,7 @@ func (o *AliRAGModel) StreamResponse(ctx context.Context, messages []*schema.Mes
 	// 3. 检索相关文档
 	docs, err := ragQuery.RetrieveDocuments(ctx, query)
 	if err != nil {
-		log.Printf("Failed to retrieve documents: %v", err)
+		logger.Warn("Failed to retrieve documents", "err", err)
 		// 检索失败，使用原始问题
 		return o.streamWithoutRAG(ctx, messages, cb)
 	}
@@ -392,33 +392,33 @@ func (m *MCPModel) GenerateResponse(ctx context.Context, messages []*schema.Mess
 	if err != nil {
 		return nil, fmt.Errorf("mcp first generate failed: %v", err)
 	}
-	log.Println("first resp is ", firstResp)
+	logger.Debug("MCP first response", "content", firstResp.Content)
 	// 解析AI响应
 	aiResult := firstResp.Content
 	toolCall, err := m.parseAIResponse(aiResult)
 	if err != nil {
-		log.Printf("Failed to parse AI response: %v", err)
+		logger.Warn("Failed to parse AI response", "err", err)
 		return firstResp, nil
 	}
 
 	// 情况1：AI不调用工具，直接返回响应
 	if !toolCall.IsToolCall {
-		log.Println("toolCall IsToolCall is false ", firstResp)
+		logger.Debug("MCP no tool call needed")
 		return firstResp, nil
 	}
-	log.Println("toolCall IsToolCall is true ", firstResp)
+	logger.Debug("MCP tool call detected")
 	// 情况2：AI要调用工具
 	// 获取MCP客户端
 	mcpClient, err := m.getMCPClient(ctx)
 	if err != nil {
-		log.Printf("MCP client error: %v", err)
+		logger.Error("MCP client error", "err", err)
 		return firstResp, nil
 	}
 
 	// 调用MCP工具
 	toolResult, err := m.callMCPTool(ctx, mcpClient, toolCall.ToolName, toolCall.Args)
 	if err != nil {
-		log.Printf("MCP tool call failed: %v", err)
+		logger.Error("MCP tool call failed", "err", err)
 		return firstResp, nil
 	}
 
@@ -437,7 +437,7 @@ func (m *MCPModel) GenerateResponse(ctx context.Context, messages []*schema.Mess
 	if err != nil {
 		return nil, fmt.Errorf("mcp second generate failed: %v", err)
 	}
-	log.Println("最终响应为：", finalResp)
+	logger.Debug("MCP final response", "content", finalResp.Content)
 	return finalResp, nil
 }
 
@@ -469,7 +469,7 @@ func (m *MCPModel) StreamResponse(ctx context.Context, messages []*schema.Messag
 	aiResult := firstResp.Content
 	toolCall, err := m.parseAIResponse(aiResult)
 	if err != nil {
-		log.Printf("Failed to parse AI response: %v", err)
+		logger.Warn("Failed to parse AI response", "err", err)
 		return aiResult, nil
 	}
 
@@ -482,14 +482,14 @@ func (m *MCPModel) StreamResponse(ctx context.Context, messages []*schema.Messag
 	// 获取MCP客户端
 	mcpClient, err := m.getMCPClient(ctx)
 	if err != nil {
-		log.Printf("MCP client error: %v", err)
+		logger.Error("MCP client error", "err", err)
 		return aiResult, nil
 	}
 
 	// 调用MCP工具
 	toolResult, err := m.callMCPTool(ctx, mcpClient, toolCall.ToolName, toolCall.Args)
 	if err != nil {
-		log.Printf("MCP tool call failed: %v", err)
+		logger.Error("MCP tool call failed", "err", err)
 		return aiResult, nil
 	}
 

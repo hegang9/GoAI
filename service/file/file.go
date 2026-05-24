@@ -1,12 +1,12 @@
 package file
 
 import (
+	"GopherAI/common/logger"
 	"GopherAI/common/rag"
 	"GopherAI/config"
 	"GopherAI/utils"
 	"context"
 	"io"
-	"log"
 	"mime/multipart"
 	"os"
 	"path/filepath"
@@ -17,14 +17,14 @@ import (
 func UploadRagFile(username string, file *multipart.FileHeader) (string, error) {
 	// 校验文件类型和文件名
 	if err := utils.ValidateFile(file); err != nil {
-		log.Printf("File validation failed: %v", err)
+		logger.Warn("File validation failed", "err", err)
 		return "", err
 	}
 
 	// 创建用户目录
 	userDir := filepath.Join("uploads", username)
 	if err := os.MkdirAll(userDir, 0755); err != nil {
-		log.Printf("Failed to create user directory %s: %v", userDir, err)
+		logger.Error("Failed to create user directory", "dir", userDir, "err", err)
 		return "", err
 	}
 
@@ -36,7 +36,7 @@ func UploadRagFile(username string, file *multipart.FileHeader) (string, error) 
 				filename := f.Name()
 				// 删除该文件对应的 Redis 索引
 				if err := rag.DeleteIndex(context.Background(), filename); err != nil {
-					log.Printf("Failed to delete index for %s: %v", filename, err)
+					logger.Warn("Failed to delete index", "filename", filename, "err", err)
 					// 继续执行，不因为索引删除失败而中断文件上传
 				}
 			}
@@ -44,7 +44,7 @@ func UploadRagFile(username string, file *multipart.FileHeader) (string, error) 
 	}
 	// 删除用户目录中的所有文件
 	if err := utils.RemoveAllFilesInDir(userDir); err != nil {
-		log.Printf("Failed to clean user directory %s: %v", userDir, err)
+		logger.Error("Failed to clean user directory", "dir", userDir, "err", err)
 		return "", err
 	}
 
@@ -58,7 +58,7 @@ func UploadRagFile(username string, file *multipart.FileHeader) (string, error) 
 	// 打开上传的文件
 	src, err := file.Open()
 	if err != nil {
-		log.Printf("Failed to open uploaded file: %v", err)
+		logger.Error("Failed to open uploaded file", "err", err)
 		return "", err
 	}
 	defer src.Close()
@@ -66,22 +66,22 @@ func UploadRagFile(username string, file *multipart.FileHeader) (string, error) 
 	// 创建目标文件
 	dst, err := os.Create(filePath)
 	if err != nil {
-		log.Printf("Failed to create destination file %s: %v", filePath, err)
+		logger.Error("Failed to create destination file", "path", filePath, "err", err)
 		return "", err
 	}
 	defer dst.Close()
 
 	if _, err := io.Copy(dst, src); err != nil {
-		log.Printf("Failed to copy file content: %v", err)
+		logger.Error("Failed to copy file content", "err", err)
 		return "", err
 	}
 
-	log.Printf("File uploaded successfully: %s", filePath)
+	logger.Info("File uploaded successfully", "path", filePath)
 
 	// 创建 RAG 索引器并对文件进行向量化
 	indexer, err := rag.NewRAGIndexer(filename, config.GetConfig().RagModelConfig.RagEmbeddingModel)
 	if err != nil {
-		log.Printf("Failed to create RAG indexer: %v", err)
+		logger.Error("Failed to create RAG indexer", "err", err)
 		// 删除已上传的文件
 		os.Remove(filePath)
 		return "", err
@@ -89,13 +89,13 @@ func UploadRagFile(username string, file *multipart.FileHeader) (string, error) 
 
 	// 读取文件内容并创建向量索引
 	if err := indexer.IndexFile(context.Background(), filePath); err != nil {
-		log.Printf("Failed to index file: %v", err)
+		logger.Error("Failed to index file", "err", err)
 		// 删除已上传的文件和索引
 		os.Remove(filePath)
 		rag.DeleteIndex(context.Background(), filename)
 		return "", err
 	}
 
-	log.Printf("File indexed successfully: %s", filename)
+	logger.Info("File indexed successfully", "filename", filename)
 	return filePath, nil
 }

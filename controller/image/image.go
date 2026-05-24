@@ -2,9 +2,9 @@ package image
 
 import (
 	"GopherAI/common/code"
+	"GopherAI/common/logger"
 	"GopherAI/controller"
 	"GopherAI/service/image"
-	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -21,14 +21,14 @@ func RecognizeImage(c *gin.Context) {
 	res := new(RecognizeImageResponse)
 	file, err := c.FormFile("image")
 	if err != nil {
-		log.Println("FormFile fail ", err)
+		logger.Error("FormFile", "err", err)
 		c.JSON(http.StatusOK, res.CodeOf(code.CodeInvalidParams))
 		return
 	}
 
 	className, err := image.RecognizeImage(file)
 	if err != nil {
-		log.Println("RecognizeImage fail ", err)
+		logger.Error("RecognizeImage", "err", err)
 		c.JSON(http.StatusOK, res.CodeOf(code.CodeServerBusy))
 		return
 	}

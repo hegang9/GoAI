@@ -2,9 +2,9 @@ package tts
 
 import (
 	"GopherAI/common/code"
+	"GopherAI/common/logger"
 	"GopherAI/common/tts"
 	"GopherAI/controller"
-	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -74,7 +74,7 @@ func QueryTTSTask(c *gin.Context) {
 
 	TTSQueryResponse, err := tts.ttsService.QueryTTSFull(c, taskID)
 	if err != nil {
-		log.Println("语音合成失败", err.Error())
+		logger.Error("语音合成失败", "err", err)
 		c.JSON(http.StatusOK, res.CodeOf(code.TTSFail))
 		return
 	}

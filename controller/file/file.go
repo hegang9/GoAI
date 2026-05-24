@@ -2,9 +2,9 @@ package file
 
 import (
 	"GopherAI/common/code"
+	"GopherAI/common/logger"
 	"GopherAI/controller"
 	"GopherAI/service/file"
-	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -21,14 +21,14 @@ func UploadRagFile(c *gin.Context) {
 	res := new(UploadFileResponse)
 	uploadedFile, err := c.FormFile("file")
 	if err != nil {
-		log.Println("FormFile fail ", err)
+		logger.Error("FormFile", "err", err)
 		c.JSON(http.StatusOK, res.CodeOf(code.CodeInvalidParams))
 		return
 	}
 
 	username := c.GetString("userName")
 	if username == "" {
-		log.Println("Username not found in context")
+		logger.Error("Username not found in context")
 		c.JSON(http.StatusOK, res.CodeOf(code.CodeInvalidToken))
 		return
 	}
@@ -36,7 +36,7 @@ func UploadRagFile(c *gin.Context) {
 	//indexer 会在 service 层根据实际文件名创建
 	filePath, err := file.UploadRagFile(username, uploadedFile)
 	if err != nil {
-		log.Println("UploadFile fail ", err)
+		logger.Error("UploadFile", "err", err)
 		c.JSON(http.StatusOK, res.CodeOf(code.CodeServerBusy))
 		return
 	}

@@ -1,13 +1,13 @@
 package tts
 
 import (
+	"GopherAI/common/logger"
 	"GopherAI/config"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 )
 
@@ -78,7 +78,7 @@ func (s *TTSService) CreateTTS(ctx context.Context, text string) (string, error)
 		return "", err
 	}
 
-	log.Println("[TTS Create] raw:", string(respBody))
+	logger.Debug("TTS Create raw response", "body", string(respBody))
 
 	var result TTSCreateResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
@@ -106,14 +106,14 @@ func (s *TTSService) GetAccessToken() string {
 
 	resp, err := http.Post(url, "application/x-www-form-urlencoded", bytes.NewReader([]byte(postData)))
 	if err != nil {
-		log.Println("get token error:", err)
+		logger.Error("TTS get token", "err", err)
 		return ""
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Println("read token error:", err)
+		logger.Error("TTS read token", "err", err)
 		return ""
 	}
 
@@ -122,7 +122,7 @@ func (s *TTSService) GetAccessToken() string {
 	}
 
 	if err := json.Unmarshal(body, &tokenResp); err != nil {
-		log.Println("unmarshal token error:", err)
+		logger.Error("TTS unmarshal token", "err", err)
 		return ""
 	}
 
@@ -174,7 +174,7 @@ func (s *TTSService) QueryTTSFull(ctx context.Context, taskID string) (*TTSQuery
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
-	log.Println("[TTS Query] raw:", string(respBody))
+	logger.Debug("TTS Query raw response", "body", string(respBody))
 
 	// 官方返回原始 JSON
 	var rawResp struct {
@@ -205,7 +205,7 @@ func (s *TTSService) QueryTTSFull(ctx context.Context, taskID string) (*TTSQuery
 		if t.TaskStatus == "Success" && len(t.TaskResult) > 0 {
 			var r TTSTaskResult
 			if err := json.Unmarshal(t.TaskResult, &r); err != nil {
-				log.Println("parse task_result error:", err)
+				logger.Error("TTS parse task_result", "err", err)
 				return nil, fmt.Errorf("failed to parse task result: %v", err)
 			}
 			task.TaskResult = &r

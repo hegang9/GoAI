@@ -1,9 +1,9 @@
 package rabbitmq
 
 import (
+	"GopherAI/common/logger"
 	"GopherAI/config"
 	"fmt"
-	"log"
 
 	"github.com/streadway/amqp"
 )
@@ -19,11 +19,11 @@ func initConn() {
 		"amqp://%s:%s@%s:%d/%s",
 		c.RabbitmqUsername, c.RabbitmqPassword, c.RabbitmqHost, c.RabbitmqPort, c.RabbitmqVhost,
 	)
-	log.Println("mqUrl is  " + mqUrl)
+	logger.Debug("RabbitMQ connecting", "url", mqUrl)
 	var err error
 	conn, err = amqp.Dial(mqUrl)
 	if err != nil {
-		log.Fatalf("RabbitMQ connection failed: %v", err) // 输出错误并退出程序
+		logger.Fatal("RabbitMQ connection failed", "err", err)
 	}
 }
 

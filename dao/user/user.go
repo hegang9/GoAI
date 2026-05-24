@@ -16,10 +16,23 @@ const (
 
 var ctx = context.Background()
 
+// getUserByUsername 根据用户名查询用户记录。
+func getUserByUsername(username string) (*model.User, error) {
+	user := new(model.User)
+	err := mysql.DB.Where("username = ?", username).First(user).Error
+	return user, err
+}
+
+// insertUser 向 users 表插入一条新用户记录。
+func insertUser(user *model.User) (*model.User, error) {
+	err := mysql.DB.Create(user).Error
+	return user, err
+}
+
 // 这边只能通过账号进行登录
 func IsExistUser(username string) (bool, *model.User) {
 
-	user, err := mysql.GetUserByUsername(username)
+	user, err := getUserByUsername(username)
 
 	if err == gorm.ErrRecordNotFound || user == nil {
 		return false, nil
@@ -29,7 +42,7 @@ func IsExistUser(username string) (bool, *model.User) {
 }
 
 func Register(username, email, password string) (*model.User, bool) {
-	if user, err := mysql.InsertUser(&model.User{
+	if user, err := insertUser(&model.User{
 		Email:    email,
 		Name:     username,
 		Username: username,
