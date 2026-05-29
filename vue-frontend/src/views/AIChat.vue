@@ -117,7 +117,7 @@ export default {
     const playTTS = async (text) => {
       try {
         // 创建TTS任务
-        const createResponse = await api.post('/AI/chat/tts', { text })
+		const createResponse = await api.post('/ai/tts', { text })
         if (createResponse.data && createResponse.data.status_code === 1000 && createResponse.data.task_id) {
           const taskId = createResponse.data.task_id
           
@@ -130,7 +130,7 @@ export default {
           let attempts = 0
           
           const pollResult = async () => {
-            const queryResponse = await api.get('/AI/chat/tts/query', { params: { task_id: taskId } })
+		    const queryResponse = await api.get('/ai/tts/query', { params: { task_id: taskId } })
             
             if (queryResponse.data && queryResponse.data.status_code === 1000) {
               const taskStatus = queryResponse.data.task_status
@@ -180,7 +180,7 @@ export default {
 
     const loadSessions = async () => {
       try {
-        const response = await api.get('/AI/chat/sessions')
+        const response = await api.get('/ai/chat/sessions')
         if (response.data && response.data.status_code === 1000 && Array.isArray(response.data.sessions)) {
           const sessionMap = {}
           response.data.sessions.forEach(s => {
@@ -216,7 +216,7 @@ export default {
       // lazy load history if not present
       if (!sessions.value[sessionId].messages || sessions.value[sessionId].messages.length === 0) {
         try {
-          const response = await api.post('/AI/chat/history', { sessionId: currentSessionId.value })
+          const response = await api.post('/ai/chat/history', { sessionId: currentSessionId.value })
           if (response.data && response.data.status_code === 1000 && Array.isArray(response.data.history)) {
             const messages = response.data.history.map(item => ({
               role: item.is_user ? 'user' : 'assistant',
@@ -241,7 +241,7 @@ export default {
         return
       }
       try {
-        const response = await api.post('/AI/chat/history', { sessionId: currentSessionId.value })
+        const response = await api.post('/ai/chat/history', { sessionId: currentSessionId.value })
         if (response.data && response.data.status_code === 1000 && Array.isArray(response.data.history)) {
           const messages = response.data.history.map(item => ({
             role: item.is_user ? 'user' : 'assistant',
@@ -327,8 +327,8 @@ export default {
 
 
       const url = tempSession.value
-        ? '/api/AI/chat/send-stream-new-session'  
-        : '/api/AI/chat/send-stream'           
+        ? '/api/ai/chat/send-stream-new-session'  
+        : '/api/ai/chat/send-stream'           
 
       const headers = {
         'Content-Type': 'application/json',
@@ -456,7 +456,7 @@ export default {
     async function handleNormal(question) {
       if (tempSession.value) {
 
-        const response = await api.post('/AI/chat/send-new-session', {
+        const response = await api.post('/ai/chat/send-new-session', {
           question: question,
           modelType: selectedModel.value
         })
@@ -486,7 +486,7 @@ export default {
 
         sessionMsgs.push({ role: 'user', content: question })
 
-        const response = await api.post('/AI/chat/send', {
+        const response = await api.post('/ai/chat/send', {
           question: question,
           modelType: selectedModel.value,
           sessionId: currentSessionId.value

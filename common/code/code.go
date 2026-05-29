@@ -1,5 +1,7 @@
 package code
 
+import "net/http"
+
 //code响应状态码
 
 type Code int64
@@ -63,4 +65,26 @@ func (code Code) Msg() string {
 		return m
 	}
 	return msg[CodeServerBusy]
+}
+
+// HTTPStatus 将业务错误码映射为标准 HTTP 状态码。
+func (code Code) HTTPStatus() int {
+	switch code {
+	case CodeSuccess:
+		return http.StatusOK
+	case CodeInvalidToken, CodeNotLogin:
+		return http.StatusUnauthorized
+	case CodeForbidden:
+		return http.StatusForbidden
+	case CodeUserNotExist, CodeRecordNotFound, AIModelNotFind:
+		return http.StatusNotFound
+	case CodeUserExist:
+		return http.StatusConflict
+	case CodeInvalidParams, CodeInvalidPassword, CodeNotMatchPassword, CodeInvalidCaptcha, CodeIllegalPassword:
+		return http.StatusBadRequest
+	case CodeServerBusy, AIModelCannotOpen, AIModelFail, TTSFail:
+		return http.StatusInternalServerError
+	default:
+		return http.StatusInternalServerError
+	}
 }

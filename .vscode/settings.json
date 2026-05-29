@@ -1,0 +1,16 @@
+{
+  "go.toolsEnvVars": {
+    "GOTOOLCHAIN": "go1.24.10"
+  },
+  "go.testEnvVars": {
+    "GOTOOLCHAIN": "go1.24.10"
+  },
+  "gopls": {
+    "env": {
+      "GOTOOLCHAIN": "go1.24.10"
+    }
+  },
+  "terminal.integrated.env.osx": {
+    "GOTOOLCHAIN": "go1.24.10"
+  }
+}

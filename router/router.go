@@ -1,7 +1,10 @@
 package router
 
 import (
+	"GopherAI/common/code"
+	"GopherAI/dto"
 	"GopherAI/middleware/jwt"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
@@ -9,6 +12,20 @@ import (
 func InitRouter() *gin.Engine {
 	// 创建gin引擎，自带Logger + Recovery 中间件
 	r := gin.Default()
+	r.HandleMethodNotAllowed = true
+	r.NoRoute(func(c *gin.Context) {
+		c.JSON(http.StatusNotFound, dto.Response{
+			StatusCode: code.CodeRecordNotFound,
+			StatusMsg:  http.StatusText(http.StatusNotFound),
+		})
+	})
+	r.NoMethod(func(c *gin.Context) {
+		c.JSON(http.StatusMethodNotAllowed, dto.Response{
+			StatusCode: code.CodeInvalidParams,
+			StatusMsg:  http.StatusText(http.StatusMethodNotAllowed),
+		})
+	})
+
 	v1 := r.Group("/api/v1")
 
 	// 公开路由
@@ -18,7 +35,7 @@ func InitRouter() *gin.Engine {
 	auth := v1.Group("")
 	auth.Use(jwt.Auth())
 	{
-		RegisterAIRouter(auth.Group("/AI"))
+		RegisterAIRouter(auth.Group("/ai"))
 		RegisterImageRouter(auth.Group("/image"))
 		RegisterFileRouter(auth.Group("/file"))
 	}

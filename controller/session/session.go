@@ -7,7 +7,6 @@ import (
 	"GopherAI/dto"
 	"GopherAI/service/session"
 	"fmt"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
@@ -53,7 +52,7 @@ func CreateStreamSessionAndSendMessage(c *gin.Context) {
 	fmt.Fprintf(c.Writer, "data: {\"sessionId\": \"%s\"}\n\n", sessionID)
 	c.Writer.Flush()
 
-	errCode = session.StreamMessageToExistingSession(userName, sessionID, req.UserQuestion, req.ModelType, http.ResponseWriter(c.Writer))
+	errCode = session.StreamMessageToExistingSession(userName, sessionID, req.UserQuestion, req.ModelType, c.Writer)
 	if errCode != code.CodeSuccess {
 		c.SSEvent("error", gin.H{"message": "Failed to send message"})
 		return
@@ -85,7 +84,7 @@ func ChatStreamSend(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("X-Accel-Buffering", "no")
 
-	errCode := session.ChatStreamSend(userName, req.SessionID, req.UserQuestion, req.ModelType, http.ResponseWriter(c.Writer))
+	errCode := session.ChatStreamSend(userName, req.SessionID, req.UserQuestion, req.ModelType, c.Writer)
 	if errCode != code.CodeSuccess {
 		c.SSEvent("error", gin.H{"message": "Failed to send message"})
 		return

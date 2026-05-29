@@ -3,7 +3,6 @@ package controller
 import (
 	"GopherAI/common/code"
 	"GopherAI/dto"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
@@ -16,7 +15,7 @@ type Response = dto.Response
 func BindJSON[T any](c *gin.Context) (T, bool) {
 	var req T
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusOK, dto.Response{
+		c.JSON(code.CodeInvalidParams.HTTPStatus(), dto.Response{
 			StatusCode: code.CodeInvalidParams,
 			StatusMsg:  code.CodeInvalidParams.Msg(),
 		})
@@ -28,11 +27,11 @@ func BindJSON[T any](c *gin.Context) (T, bool) {
 // JSON 统一业务结果响应。根据 errCode 决定返回成功数据还是错误信息。
 func JSON(c *gin.Context, data any, errCode code.Code) {
 	if errCode != code.CodeSuccess {
-		c.JSON(http.StatusOK, dto.Response{
+		c.JSON(errCode.HTTPStatus(), dto.Response{
 			StatusCode: errCode,
 			StatusMsg:  errCode.Msg(),
 		})
 		return
 	}
-	c.JSON(http.StatusOK, data)
+	c.JSON(errCode.HTTPStatus(), data)
 }
