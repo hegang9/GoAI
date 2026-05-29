@@ -6,6 +6,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func FileRouter(r *gin.RouterGroup) {
+func RegisterFileRouter(r *gin.RouterGroup) {
 	r.POST("/upload", file.UploadRagFile)
 }

@@ -4,36 +4,26 @@ import (
 	"GopherAI/common/code"
 	"GopherAI/common/logger"
 	"GopherAI/controller"
+	"GopherAI/converter"
 	"GopherAI/service/image"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
 
-type (
-	RecognizeImageResponse struct {
-		ClassName string `json:"class_name,omitempty"` // AI回答
-		controller.Response
-	}
-)
-
 func RecognizeImage(c *gin.Context) {
-	res := new(RecognizeImageResponse)
 	file, err := c.FormFile("image")
 	if err != nil {
 		logger.Error("FormFile", "err", err)
-		c.JSON(http.StatusOK, res.CodeOf(code.CodeInvalidParams))
+		controller.JSON(c, nil, code.CodeInvalidParams)
 		return
 	}
 
-	className, err := image.RecognizeImage(file)
+	imageBO, err := image.RecognizeImage(file)
 	if err != nil {
 		logger.Error("RecognizeImage", "err", err)
-		c.JSON(http.StatusOK, res.CodeOf(code.CodeServerBusy))
+		controller.JSON(c, nil, code.CodeServerBusy)
 		return
 	}
 
-	res.Success()
-	res.ClassName = className
-	c.JSON(http.StatusOK, res)
+	controller.JSON(c, converter.ImageResultBOToResponse(imageBO), code.CodeSuccess)
 }

@@ -7,29 +7,20 @@ import (
 )
 
 func InitRouter() *gin.Engine {
-
+	// 创建gin引擎，自带Logger + Recovery 中间件
 	r := gin.Default()
-	enterRouter := r.Group("/api/v1")
-	{
-		RegisterUserRouter(enterRouter.Group("/user"))
-	}
-	//后续登录的接口需要jwt鉴权
-	{
-		AIGroup := enterRouter.Group("/AI")
-		AIGroup.Use(jwt.Auth())
-		AIRouter(AIGroup)
-	}
+	v1 := r.Group("/api/v1")
 
-	{
-		ImageGroup := enterRouter.Group("/image")
-		ImageGroup.Use(jwt.Auth())
-		ImageRouter(ImageGroup)
-	}
+	// 公开路由
+	RegisterUserRouter(v1.Group("/user"))
 
+	// JWT 鉴权路由组 — 中间件只挂载一次，所有子组自动继承
+	auth := v1.Group("")
+	auth.Use(jwt.Auth())
 	{
-		FileGroup := enterRouter.Group("/file")
-		FileGroup.Use(jwt.Auth())
-		FileRouter(FileGroup)
+		RegisterAIRouter(auth.Group("/AI"))
+		RegisterImageRouter(auth.Group("/image"))
+		RegisterFileRouter(auth.Group("/file"))
 	}
 
 	return r

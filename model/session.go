@@ -37,17 +37,3 @@ type Session struct {
 	// DeletedAt 软删除标记：用户删除会话时不真正删数据，方便误删恢复和数据审计。
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
-
-// SessionInfo 是 Session 的轻量视图，仅包含前端会话列表所需的两个字段。
-//
-// 为什么需要单独的 struct？
-// 当用户请求会话列表时，前端只需要 ID 和标题。如果直接返回完整的 Session，
-// 会附带 CreatedAt、UpdatedAt 等无用字段，增加不必要的网络开销。
-// 这种 pattern 在 API 设计中称为 DTO（Data Transfer Object，数据传输对象）。
-//
-// 注意：这个 struct 没有 gorm tag，说明它**不参与数据库映射**，
-// 仅用于 JSON 序列化/反序列化。
-type SessionInfo struct {
-	SessionID string `json:"sessionId"`
-	Title     string `json:"name"`
-}

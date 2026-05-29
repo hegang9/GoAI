@@ -6,7 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func ImageRouter(r *gin.RouterGroup) {
+func RegisterImageRouter(r *gin.RouterGroup) {
 
 	r.POST("/recognize", image.RecognizeImage)
 }

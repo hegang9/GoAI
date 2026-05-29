@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func AIRouter(r *gin.RouterGroup) {
+func RegisterAIRouter(r *gin.RouterGroup) {
 
 	// 聊天相关接口
 	{
@@ -23,5 +23,4 @@ func AIRouter(r *gin.RouterGroup) {
 		r.POST("/chat/send-stream-new-session", session.CreateStreamSessionAndSendMessage)
 		r.POST("/chat/send-stream", session.ChatStreamSend)
 	}
-
 }

@@ -28,13 +28,3 @@ type Message struct {
 	// CreatedAt 消息创建时间，由 GORM 在插入记录时自动填充。
 	CreatedAt time.Time `json:"created_at"`
 }
-
-// History 精简的聊天历史记录，仅包含展示所需的核心字段。
-// 用于在 API 响应中向前端传递历史消息，不暴露数据库内部信息（如 ID、SessionID）。
-type History struct {
-	// IsUser 消息来源方向，同 Message.IsUser。
-	IsUser bool `json:"is_user"`
-
-	// Content 消息正文，同 Message.Content。
-	Content string `json:"content"`
-}
