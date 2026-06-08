@@ -15,6 +15,7 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func GetRandomNumbers(num int) string {
@@ -34,6 +35,18 @@ func MD5(str string) string {
 	m := md5.New()
 	m.Write([]byte(str))
 	return hex.EncodeToString(m.Sum(nil))
+}
+
+func HashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
+}
+
+func CheckPasswordHash(password, hash string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
 func GenerateUUID() string {

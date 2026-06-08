@@ -33,10 +33,13 @@ func GenerateToken(id int64, username string) (string, error) {
 // ParseToken 解析Token
 func ParseToken(token string) (string, bool) {
 	claims := new(Claims)
+	if claims == nil {
+		return "", false
+	}
 	t, err := jwt.ParseWithClaims(token, claims, func(t *jwt.Token) (interface{}, error) {
 		return []byte(config.GetConfig().Key), nil
 	})
-	if !t.Valid || err != nil || claims == nil {
+	if err != nil || t == nil || !t.Valid {
 		return "", false
 	}
 	return claims.Username, true

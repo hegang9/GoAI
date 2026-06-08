@@ -1,15 +1,15 @@
 package router
 
 import (
-	"GopherAI/controller/user"
+	"GopherAI/controller"
 
 	"github.com/gin-gonic/gin"
 )
 
 func RegisterUserRouter(r *gin.RouterGroup) {
 	{
-		r.POST("/register", user.Register)
-		r.POST("/login", user.Login)
-		r.POST("/captcha", user.HandleCaptcha)
+		r.POST("/register", controller.Register)
+		r.POST("/login", controller.Login)
+		r.POST("/captcha", controller.HandleCaptcha)
 	}
 }

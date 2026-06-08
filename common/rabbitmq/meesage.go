@@ -6,8 +6,8 @@
 package rabbitmq
 
 import (
-	"GopherAI/dao/message" // DAO 层，负责将消息写入 MySQL
-	"GopherAI/model"       // 数据模型
+	"GopherAI/dao"   // DAO 层，负责将消息写入 MySQL
+	"GopherAI/model" // 数据模型
 	"encoding/json"
 
 	"github.com/streadway/amqp"
@@ -66,6 +66,6 @@ func MQMessage(msg *amqp.Delivery) error {
 	}
 	// 异步插入数据库：此处在消费者 goroutine 中执行，
 	// 不阻塞 HTTP 请求处理
-	message.CreateMessage(newMsg)
+	dao.CreateMessage(newMsg)
 	return nil
 }

@@ -5,7 +5,8 @@ import (
 	"GopherAI/common/aihelper"
 	"GopherAI/common/code"
 	"GopherAI/common/logger"
-	"GopherAI/dao/session"
+	"GopherAI/config"
+	"GopherAI/dao"
 	"GopherAI/model"
 	"context"
 	"net/http"
@@ -14,6 +15,14 @@ import (
 )
 
 var ctx = context.Background()
+
+func buildAIHelperConfig(userName string) map[string]any {
+	conf := config.GetConfig()
+	return map[string]any{
+		"apiKey":   conf.AIModelConfig.APIKey,
+		"username": userName,
+	}
+}
 
 func GetUserSessionsByUserName(userName string) ([]bo.SessionInfoBO, code.Code) {
 	manager := aihelper.GetGlobalManager()
@@ -36,18 +45,14 @@ func CreateSessionAndSendMessage(userName, userQuestion, modelType string) (bo.A
 		UserName: userName,
 		Title:    userQuestion,
 	}
-	createdSession, err := session.CreateSession(newSession)
+	createdSession, err := dao.CreateSession(newSession)
 	if err != nil {
 		logger.Error("CreateSessionAndSendMessage CreateSession", "err", err)
 		return bo.AIResponseBO{}, code.CodeServerBusy
 	}
 
 	manager := aihelper.GetGlobalManager()
-	config := map[string]any{
-		"apiKey":   "your-api-key",
-		"username": userName,
-	}
-	helper, err := manager.GetOrCreateAIHelper(userName, createdSession.ID, modelType, config)
+	helper, err := manager.GetOrCreateAIHelper(userName, createdSession.ID, modelType, buildAIHelperConfig(userName))
 	if err != nil {
 		logger.Error("CreateSessionAndSendMessage GetOrCreateAIHelper", "err", err)
 		return bo.AIResponseBO{}, code.AIModelFail
@@ -68,7 +73,7 @@ func CreateStreamSessionOnly(userName, userQuestion string) (string, code.Code) 
 		UserName: userName,
 		Title:    userQuestion,
 	}
-	createdSession, err := session.CreateSession(newSession)
+	createdSession, err := dao.CreateSession(newSession)
 	if err != nil {
 		logger.Error("CreateStreamSessionOnly CreateSession", "err", err)
 		return "", code.CodeServerBusy
@@ -84,11 +89,7 @@ func StreamMessageToExistingSession(userName, sessionID, userQuestion, modelType
 	}
 
 	manager := aihelper.GetGlobalManager()
-	config := map[string]any{
-		"apiKey":   "your-api-key",
-		"username": userName,
-	}
-	helper, err := manager.GetOrCreateAIHelper(userName, sessionID, modelType, config)
+	helper, err := manager.GetOrCreateAIHelper(userName, sessionID, modelType, buildAIHelperConfig(userName))
 	if err != nil {
 		logger.Error("StreamMessageToExistingSession GetOrCreateAIHelper", "err", err)
 		return code.AIModelFail
@@ -122,10 +123,7 @@ func StreamMessageToExistingSession(userName, sessionID, userQuestion, modelType
 
 func ChatSend(userName, sessionID, userQuestion, modelType string) (bo.AIResponseBO, code.Code) {
 	manager := aihelper.GetGlobalManager()
-	config := map[string]any{
-		"username": userName,
-	}
-	helper, err := manager.GetOrCreateAIHelper(userName, sessionID, modelType, config)
+	helper, err := manager.GetOrCreateAIHelper(userName, sessionID, modelType, buildAIHelperConfig(userName))
 	if err != nil {
 		logger.Error("ChatSend GetOrCreateAIHelper", "err", err)
 		return bo.AIResponseBO{}, code.AIModelFail

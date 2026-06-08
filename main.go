@@ -7,7 +7,7 @@ import (
 	"GopherAI/common/rabbitmq"
 	"GopherAI/common/redis"
 	"GopherAI/config"
-	"GopherAI/dao/message"
+	"GopherAI/dao"
 	"GopherAI/router"
 	"fmt"
 )
@@ -23,7 +23,7 @@ func StartServer(addr string, port int) error {
 func readDataFromDB() error {
 	manager := aihelper.GetGlobalManager()
 	// 从数据库读取所有消息
-	msgs, err := message.GetAllMessages()
+	msgs, err := dao.GetAllMessages()
 	if err != nil {
 		return err
 	}
@@ -32,10 +32,11 @@ func readDataFromDB() error {
 		m := &msgs[i]
 		//默认openai模型
 		modelType := "1"
-		config := make(map[string]interface{})
+		// config
+		c := make(map[string]interface{})
 
 		// 创建对应的 AIHelper
-		helper, err := manager.GetOrCreateAIHelper(m.UserName, m.SessionID, modelType, config)
+		helper, err := manager.GetOrCreateAIHelper(m.UserName, m.SessionID, modelType, c)
 		if err != nil {
 			logger.Error("readDataFromDB failed to create helper", "user", m.UserName, "session", m.SessionID, "err", err)
 			continue
@@ -60,7 +61,10 @@ func main() {
 		return
 	}
 	//初始化AIHelperManager
-	readDataFromDB()
+	if err := readDataFromDB(); err != nil {
+		logger.Fatal("readDataFromDB failed", "err", err)
+		return
+	}
 
 	//初始化redis
 	redis.Init()

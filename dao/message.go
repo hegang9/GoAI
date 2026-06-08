@@ -1,4 +1,4 @@
-package message
+package dao
 
 import (
 	"GopherAI/common/mysql"

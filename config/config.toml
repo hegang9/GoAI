@@ -44,3 +44,6 @@ charset =  "utf8mb4"
   [voiceServiceConfig]
   voiceServiceApiKey = "baiduApiKey"
   voiceServiceSecretKey ="baiduSecretKey"
+
+  [aiModelConfig]
+  apiKey = "your-api-key"

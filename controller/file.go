@@ -1,9 +1,8 @@
-package file
+package controller
 
 import (
 	"GopherAI/common/code"
 	"GopherAI/common/logger"
-	"GopherAI/controller"
 	"GopherAI/converter"
 	"GopherAI/service/file"
 
@@ -14,23 +13,23 @@ func UploadRagFile(c *gin.Context) {
 	uploadedFile, err := c.FormFile("file")
 	if err != nil {
 		logger.Error("FormFile", "err", err)
-		controller.JSON(c, nil, code.CodeInvalidParams)
+		JSON(c, nil, code.CodeInvalidParams)
 		return
 	}
 
 	username := c.GetString("userName")
 	if username == "" {
 		logger.Error("Username not found in context")
-		controller.JSON(c, nil, code.CodeInvalidToken)
+		JSON(c, nil, code.CodeInvalidToken)
 		return
 	}
 
 	fileBO, err := file.UploadRagFile(username, uploadedFile)
 	if err != nil {
 		logger.Error("UploadFile", "err", err)
-		controller.JSON(c, nil, code.CodeServerBusy)
+		JSON(c, nil, code.CodeServerBusy)
 		return
 	}
 
-	controller.JSON(c, converter.FileBOToUploadResponse(fileBO), code.CodeSuccess)
+	JSON(c, converter.FileBOToUploadResponse(fileBO), code.CodeSuccess)
 }

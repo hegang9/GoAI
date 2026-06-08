@@ -93,6 +93,11 @@ type VoiceServiceConfig struct {
 	VoiceServiceSecretKey string `toml:"voiceServiceSecretKey"` // 百度 TTS Secret Key
 }
 
+// AIModelConfig AI 模型通用配置。
+type AIModelConfig struct {
+	APIKey string `toml:"apiKey"` // AI 服务 API Key
+}
+
 // ============================================================================
 // 聚合配置 & 全局单例
 // ============================================================================
@@ -114,6 +119,7 @@ type Config struct {
 	Rabbitmq           `toml:"rabbitmqConfig"`     // 对应 [rabbitmqConfig] 段
 	RagModelConfig     `toml:"ragModelConfig"`     // 对应 [ragModelConfig] 段
 	VoiceServiceConfig `toml:"voiceServiceConfig"` // 对应 [voiceServiceConfig] 段
+	AIModelConfig      `toml:"aiModelConfig"`      // 对应 [aiModelConfig] 段
 }
 
 // RedisKeyConfig 定义 Redis 中使用的 key 命名模板。

@@ -1,7 +1,6 @@
-package user
+package controller
 
 import (
-	"GopherAI/controller"
 	"GopherAI/converter"
 	"GopherAI/dto"
 	"GopherAI/service/user"
@@ -10,31 +9,31 @@ import (
 )
 
 func Login(c *gin.Context) {
-	req, ok := controller.BindJSON[dto.LoginRequest](c)
+	req, ok := BindJSON[dto.LoginRequest](c)
 	if !ok {
 		return
 	}
 
 	userBO, errCode := user.Login(req.Username, req.Password)
-	controller.JSON(c, converter.UserBOToLoginResponse(userBO), errCode)
+	JSON(c, converter.UserLoginResponse(userBO), errCode)
 }
 
 func Register(c *gin.Context) {
-	req, ok := controller.BindJSON[dto.RegisterRequest](c)
+	req, ok := BindJSON[dto.RegisterRequest](c)
 	if !ok {
 		return
 	}
 
 	userBO, errCode := user.Register(req.Email, req.Password, req.Captcha)
-	controller.JSON(c, converter.UserBOToRegisterResponse(userBO), errCode)
+	JSON(c, converter.UserRegisterResponse(userBO), errCode)
 }
 
 func HandleCaptcha(c *gin.Context) {
-	req, ok := controller.BindJSON[dto.CaptchaRequest](c)
+	req, ok := BindJSON[dto.CaptchaRequest](c)
 	if !ok {
 		return
 	}
 
 	errCode := user.SendCaptcha(req.Email)
-	controller.JSON(c, dto.CaptchaResponse{}, errCode)
+	JSON(c, dto.CaptchaResponse{}, errCode)
 }

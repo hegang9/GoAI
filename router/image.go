@@ -1,12 +1,12 @@
 package router
 
 import (
-	"GopherAI/controller/image"
+	"GopherAI/controller"
 
 	"github.com/gin-gonic/gin"
 )
 
 func RegisterImageRouter(r *gin.RouterGroup) {
 
-	r.POST("/recognize", image.RecognizeImage)
+	r.POST("/recognize", controller.RecognizeImage)
 }

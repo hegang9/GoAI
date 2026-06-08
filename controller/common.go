@@ -1,3 +1,5 @@
+// common.go 公共控制器，包含通用的HTTP逻辑处理函数
+
 package controller
 
 import (
@@ -10,7 +12,7 @@ import (
 // Response 保留以兼容尚未迁移的 controller（阶段 4 清理时移除）。
 type Response = dto.Response
 
-// BindJSON 统一 JSON 参数绑定 + 校验失败响应。
+// BindJSON 统一 JSON 参数绑定 + 校验请求参数，失败响应。
 // 成功返回 req 和 true，失败时已自动写入错误响应，调用方直接 return。
 func BindJSON[T any](c *gin.Context) (T, bool) {
 	var req T

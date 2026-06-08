@@ -1,8 +1,7 @@
-package session
+package controller
 
 import (
 	"GopherAI/common/code"
-	"GopherAI/controller"
 	"GopherAI/converter"
 	"GopherAI/dto"
 	"GopherAI/service/session"
@@ -15,22 +14,22 @@ func GetUserSessionsByUserName(c *gin.Context) {
 	userName := c.GetString("userName")
 
 	sessions, errCode := session.GetUserSessionsByUserName(userName)
-	controller.JSON(c, dto.GetUserSessionsResponse{Sessions: converter.SessionInfoBOsToDTO(sessions)}, errCode)
+	JSON(c, dto.GetUserSessionsResponse{Sessions: converter.SessionInfoBOsToDTO(sessions)}, errCode)
 }
 
 func CreateSessionAndSendMessage(c *gin.Context) {
-	req, ok := controller.BindJSON[dto.CreateSessionRequest](c)
+	req, ok := BindJSON[dto.CreateSessionRequest](c)
 	if !ok {
 		return
 	}
 
 	userName := c.GetString("userName")
 	result, errCode := session.CreateSessionAndSendMessage(userName, req.UserQuestion, req.ModelType)
-	controller.JSON(c, converter.AIResponseBOToCreateSessionResponse(result), errCode)
+	JSON(c, converter.AIResponseBOToCreateSessionResponse(result), errCode)
 }
 
 func CreateStreamSessionAndSendMessage(c *gin.Context) {
-	req, ok := controller.BindJSON[dto.CreateSessionRequest](c)
+	req, ok := BindJSON[dto.CreateSessionRequest](c)
 	if !ok {
 		return
 	}
@@ -60,18 +59,18 @@ func CreateStreamSessionAndSendMessage(c *gin.Context) {
 }
 
 func ChatSend(c *gin.Context) {
-	req, ok := controller.BindJSON[dto.ChatSendRequest](c)
+	req, ok := BindJSON[dto.ChatSendRequest](c)
 	if !ok {
 		return
 	}
 
 	userName := c.GetString("userName")
 	result, errCode := session.ChatSend(userName, req.SessionID, req.UserQuestion, req.ModelType)
-	controller.JSON(c, converter.AIResponseBOToChatSendResponse(result), errCode)
+	JSON(c, converter.AIResponseBOToChatSendResponse(result), errCode)
 }
 
 func ChatStreamSend(c *gin.Context) {
-	req, ok := controller.BindJSON[dto.ChatSendRequest](c)
+	req, ok := BindJSON[dto.ChatSendRequest](c)
 	if !ok {
 		return
 	}
@@ -92,12 +91,12 @@ func ChatStreamSend(c *gin.Context) {
 }
 
 func ChatHistory(c *gin.Context) {
-	req, ok := controller.BindJSON[dto.ChatHistoryRequest](c)
+	req, ok := BindJSON[dto.ChatHistoryRequest](c)
 	if !ok {
 		return
 	}
 
 	userName := c.GetString("userName")
 	history, errCode := session.GetChatHistory(userName, req.SessionID)
-	controller.JSON(c, dto.ChatHistoryResponse{History: converter.MessageBOsToHistoryDTO(history)}, errCode)
+	JSON(c, dto.ChatHistoryResponse{History: converter.MessageBOsToHistoryDTO(history)}, errCode)
 }

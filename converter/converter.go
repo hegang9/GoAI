@@ -3,20 +3,19 @@ package converter
 import (
 	"GopherAI/bo"
 	"GopherAI/dto"
-	"GopherAI/model"
 )
 
-func UserModelToBO(user *model.User, token string) bo.UserBO {
-	return bo.UserBO{Token: token}
-}
-
-func UserBOToLoginResponse(userBO bo.UserBO) dto.LoginResponse {
-	return dto.LoginResponse{Token: userBO.Token}
-}
-
-func UserBOToRegisterResponse(userBO bo.UserBO) dto.RegisterResponse {
-	return dto.RegisterResponse{Token: userBO.Token}
-}
+//func UserModelToBO(user *model.User, token string) bo.UserBO {
+//	return bo.UserBO{Token: token}
+//}
+//
+//func UserBOToLoginResponse(userBO bo.UserBO) dto.LoginResponse {
+//	return dto.LoginResponse{Token: userBO.Token}
+//}
+//
+//func UserBOToRegisterResponse(userBO bo.UserBO) dto.RegisterResponse {
+//	return dto.RegisterResponse{Token: userBO.Token}
+//}
 
 func SessionInfoBOsToDTO(sessionBOs []bo.SessionInfoBO) []dto.SessionInfo {
 	sessions := make([]dto.SessionInfo, 0, len(sessionBOs))

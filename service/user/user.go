@@ -6,7 +6,7 @@ import (
 	myemail "GopherAI/common/email"
 	myredis "GopherAI/common/redis"
 	"GopherAI/converter"
-	"GopherAI/dao/user"
+	"GopherAI/dao"
 	"GopherAI/model"
 	"GopherAI/utils"
 	"GopherAI/utils/myjwt"
@@ -16,11 +16,11 @@ func Login(username, password string) (bo.UserBO, code.Code) {
 	var userInformation *model.User
 	var ok bool
 
-	if ok, userInformation = user.IsExistUser(username); !ok {
+	if ok, userInformation = dao.IsExistUser(username); !ok {
 		return bo.UserBO{}, code.CodeUserNotExist
 	}
 
-	if userInformation.Password != utils.MD5(password) {
+	if !utils.CheckPasswordHash(password, userInformation.Password) {
 		return bo.UserBO{}, code.CodeInvalidPassword
 	}
 
@@ -36,7 +36,7 @@ func Register(email, password, captcha string) (bo.UserBO, code.Code) {
 	var ok bool
 	var userInformation *model.User
 
-	if ok, _ := user.IsExistUser(email); ok {
+	if ok, _ := dao.IsExistUser(email); ok {
 		return bo.UserBO{}, code.CodeUserExist
 	}
 
@@ -46,11 +46,11 @@ func Register(email, password, captcha string) (bo.UserBO, code.Code) {
 
 	username := utils.GetRandomNumbers(11)
 
-	if userInformation, ok = user.Register(username, email, password); !ok {
+	if userInformation, ok = dao.Register(username, email, password); !ok {
 		return bo.UserBO{}, code.CodeServerBusy
 	}
 
-	if err := myemail.SendCaptcha(email, username, user.UserNameMsg); err != nil {
+	if err := myemail.SendCaptcha(email, username, dao.UserNameMsg); err != nil {
 		return bo.UserBO{}, code.CodeServerBusy
 	}
 

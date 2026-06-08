@@ -1,11 +1,11 @@
 package router
 
 import (
-	"GopherAI/controller/file"
+	"GopherAI/controller"
 
 	"github.com/gin-gonic/gin"
 )
 
 func RegisterFileRouter(r *gin.RouterGroup) {
-	r.POST("/upload", file.UploadRagFile)
+	r.POST("/upload", controller.UploadRagFile)
 }

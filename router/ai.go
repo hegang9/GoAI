@@ -1,8 +1,7 @@
 package router
 
 import (
-	"GopherAI/controller/session"
-	"GopherAI/controller/tts"
+	"GopherAI/controller"
 
 	"github.com/gin-gonic/gin"
 )
@@ -11,16 +10,16 @@ func RegisterAIRouter(r *gin.RouterGroup) {
 
 	// 聊天相关接口
 	{
-		r.GET("/chat/sessions", session.GetUserSessionsByUserName)
-		r.POST("/chat/send-new-session", session.CreateSessionAndSendMessage)
-		r.POST("/chat/send", session.ChatSend)
-		r.POST("/chat/history", session.ChatHistory)
+		r.GET("/chat/sessions", controller.GetUserSessionsByUserName)
+		r.POST("/chat/send-new-session", controller.CreateSessionAndSendMessage)
+		r.POST("/chat/send", controller.ChatSend)
+		r.POST("/chat/history", controller.ChatHistory)
 
 		// TTS相关接口
-		r.POST("/tts", tts.CreateTTSTask)
-		r.GET("/tts/query", tts.QueryTTSTask)
+		r.POST("/tts", controller.CreateTTSTask)
+		r.GET("/tts/query", controller.QueryTTSTask)
 
-		r.POST("/chat/send-stream-new-session", session.CreateStreamSessionAndSendMessage)
-		r.POST("/chat/send-stream", session.ChatStreamSend)
+		r.POST("/chat/send-stream-new-session", controller.CreateStreamSessionAndSendMessage)
+		r.POST("/chat/send-stream", controller.ChatStreamSend)
 	}
 }
