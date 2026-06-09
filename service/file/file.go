@@ -5,7 +5,8 @@ import (
 	"GopherAI/common/logger"
 	"GopherAI/common/rag"
 	"GopherAI/config"
-	"GopherAI/utils"
+	"GopherAI/fileutil"
+	"GopherAI/id"
 	"context"
 	"io"
 	"mime/multipart"
@@ -14,7 +15,7 @@ import (
 )
 
 func UploadRagFile(username string, file *multipart.FileHeader) (bo.FileBO, error) {
-	if err := utils.ValidateFile(file); err != nil {
+	if err := fileutil.ValidateFile(file); err != nil {
 		logger.Warn("File validation failed", "err", err)
 		return bo.FileBO{}, err
 	}
@@ -37,12 +38,12 @@ func UploadRagFile(username string, file *multipart.FileHeader) (bo.FileBO, erro
 		}
 	}
 
-	if err := utils.RemoveAllFilesInDir(userDir); err != nil {
+	if err := fileutil.RemoveAllFilesInDir(userDir); err != nil {
 		logger.Error("Failed to clean user directory", "dir", userDir, "err", err)
 		return bo.FileBO{}, err
 	}
 
-	uuid := utils.GenerateUUID()
+	uuid := id.GenerateUUID()
 	ext := filepath.Ext(file.Filename)
 	filename := uuid + ext
 	filePath := filepath.Join(userDir, filename)

@@ -1,9 +1,9 @@
 package dao
 
 import (
+	"GopherAI/auth"
 	"GopherAI/common/mysql"
 	"GopherAI/model"
-	"GopherAI/utils"
 
 	"gorm.io/gorm"
 )
@@ -33,7 +33,7 @@ func IsExistUser(username string) (bool, *model.User) {
 }
 
 func Register(username, email, password string) (*model.User, bool) {
-	passwordHash, err := utils.HashPassword(password)
+	passwordHash, err := auth.HashPassword(password)
 	if err != nil {
 		return nil, false
 	}

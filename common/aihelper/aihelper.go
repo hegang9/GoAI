@@ -2,8 +2,8 @@ package aihelper
 
 import (
 	"GopherAI/common/rabbitmq"
+	"GopherAI/mapper"
 	"GopherAI/model"
-	"GopherAI/utils"
 	"context"
 	"sync"
 )
@@ -70,7 +70,7 @@ func (a *AIHelper) GenerateResponse(userName string, ctx context.Context, userQu
 
 	a.mu.RLock()
 	//将model.Message转化成schema.Message
-	messages := utils.ConvertToSchemaMessages(a.messages)
+	messages := mapper.ConvertToSchemaMessages(a.messages)
 	a.mu.RUnlock()
 
 	//调用模型生成回复
@@ -80,7 +80,7 @@ func (a *AIHelper) GenerateResponse(userName string, ctx context.Context, userQu
 	}
 
 	//将schema.Message转化成model.Message
-	modelMsg := utils.ConvertToModelMessage(a.SessionID, userName, schemaMsg)
+	modelMsg := mapper.ConvertToModelMessage(a.SessionID, userName, schemaMsg)
 
 	//调用存储函数
 	a.AddMessage(modelMsg.Content, userName, false, true)
@@ -95,7 +95,7 @@ func (a *AIHelper) StreamResponse(userName string, ctx context.Context, cb Strea
 	a.AddMessage(userQuestion, userName, true, true)
 
 	a.mu.RLock()
-	messages := utils.ConvertToSchemaMessages(a.messages)
+	messages := mapper.ConvertToSchemaMessages(a.messages)
 	a.mu.RUnlock()
 
 	content, err := a.model.StreamResponse(ctx, messages, cb)

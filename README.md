@@ -13,6 +13,12 @@ GopherAI 是一个 Go + Vue 的 AI 应用示例，后端基于 Gin，前端基�
 ├── service/                # 业务逻辑
 ├── common/                 # MySQL/Redis/RabbitMQ/AI/TTS 等公共组件
 ├── model/ dao/ dto/ bo/    # 数据模型、DAO、传输对象
+├── auth/                   # 密码哈希与 JWT 认证
+├── random/                 # 随机码生成
+├── id/                     # 标识生成
+├── fileutil/               # 文件校验与目录清理
+├── mapper/                 # model 与 schema 之间的消息转换
+├── utils/                  # 遗留通用工具（当前仅保留 MD5）
 ├── vue-frontend/           # Vue 前端
 ├── docker-compose.yml      # 本地开发中间件编排
 └── docs/API.md             # 接口文档
@@ -119,6 +125,19 @@ go run main.go
 4. 初始化 Redis。
 5. 初始化 RabbitMQ 并启动 `Message` 队列消费者。
 6. 监听 `[mainConfig]` 配置的地址和端口。
+
+## 工具包拆分说明
+
+为减少 `utils` 模块职责混杂，项目已按职责拆出以下包：
+
+- `auth`：密码哈希校验与 JWT 生成/解析
+- `random`：随机数字码生成
+- `id`：UUID 生成
+- `fileutil`：上传文件校验、目录文件清理
+- `mapper`：`model.Message` 与 `schema.Message` 的相互转换
+- `utils`：当前仅保留遗留 `MD5` 接口，新增通用逻辑不再继续放入该包
+
+当前相关调用已迁移到这些明确包中，例如用户认证、JWT 中间件、RAG 文件上传以及 AI 消息转换逻辑。
 
 ## 启动前端
 

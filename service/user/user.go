@@ -1,6 +1,7 @@
 package user
 
 import (
+	"GopherAI/auth"
 	"GopherAI/bo"
 	"GopherAI/common/code"
 	myemail "GopherAI/common/email"
@@ -8,8 +9,7 @@ import (
 	"GopherAI/converter"
 	"GopherAI/dao"
 	"GopherAI/model"
-	"GopherAI/utils"
-	"GopherAI/utils/myjwt"
+	"GopherAI/random"
 )
 
 func Login(username, password string) (bo.UserBO, code.Code) {
@@ -20,11 +20,11 @@ func Login(username, password string) (bo.UserBO, code.Code) {
 		return bo.UserBO{}, code.CodeUserNotExist
 	}
 
-	if !utils.CheckPasswordHash(password, userInformation.Password) {
+	if !auth.CheckPasswordHash(password, userInformation.Password) {
 		return bo.UserBO{}, code.CodeInvalidPassword
 	}
 
-	token, err := myjwt.GenerateToken(userInformation.ID, userInformation.Username)
+	token, err := auth.GenerateToken(userInformation.ID, userInformation.Username)
 	if err != nil {
 		return bo.UserBO{}, code.CodeServerBusy
 	}
@@ -44,7 +44,7 @@ func Register(email, password, captcha string) (bo.UserBO, code.Code) {
 		return bo.UserBO{}, code.CodeInvalidCaptcha
 	}
 
-	username := utils.GetRandomNumbers(11)
+	username := random.GetRandomNumbers(11)
 
 	if userInformation, ok = dao.Register(username, email, password); !ok {
 		return bo.UserBO{}, code.CodeServerBusy
@@ -54,7 +54,7 @@ func Register(email, password, captcha string) (bo.UserBO, code.Code) {
 		return bo.UserBO{}, code.CodeServerBusy
 	}
 
-	token, err := myjwt.GenerateToken(userInformation.ID, userInformation.Username)
+	token, err := auth.GenerateToken(userInformation.ID, userInformation.Username)
 	if err != nil {
 		return bo.UserBO{}, code.CodeServerBusy
 	}
@@ -63,7 +63,7 @@ func Register(email, password, captcha string) (bo.UserBO, code.Code) {
 }
 
 func SendCaptcha(email_ string) code.Code {
-	send_code := utils.GetRandomNumbers(6)
+	send_code := random.GetRandomNumbers(6)
 
 	if err := myredis.SetCaptchaForEmail(email_, send_code); err != nil {
 		return code.CodeServerBusy

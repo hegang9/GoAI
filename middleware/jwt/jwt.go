@@ -1,10 +1,10 @@
 package jwt
 
 import (
+	"GopherAI/auth"
 	"GopherAI/common/code"
 	"GopherAI/common/logger"
 	"GopherAI/controller"
-	"GopherAI/utils/myjwt"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -31,7 +31,7 @@ func Auth() gin.HandlerFunc {
 		}
 
 		logger.Debug("JWT token received", "token_prefix", token[:min(10, len(token))])
-		userName, ok := myjwt.ParseToken(token)
+		userName, ok := auth.ParseToken(token)
 		if !ok {
 			c.JSON(code.CodeInvalidToken.HTTPStatus(), res.CodeOf(code.CodeInvalidToken))
 			c.Abort()
