@@ -24,7 +24,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Init 根据运行模式初始化全局 logger。
+// InitLogger 根据运行模式初始化全局 logger。
 // 应在 main.go 中尽早调用（在首次打日志之前）。
 //
 //   - debug 模式：TextHandler，输出到 stderr，格式易读
@@ -32,7 +32,7 @@ import (
 //
 // 日志级别通过环境变量 LOG_LEVEL 控制，可选值：debug、info、warn、error。
 // 默认级别为 info（Debug 日志在生产环境不输出）。
-func Init() {
+func InitLogger() {
 	var level slog.Level
 	switch strings.ToLower(os.Getenv("LOG_LEVEL")) {
 	case "debug":

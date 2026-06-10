@@ -5,7 +5,7 @@
 //  2. RAG 向量存储（通过 RediSearch 模块的 FLAT 索引 + COSINE 距离）
 //  3. 通用键值缓存
 //
-// 全局变量 Rdb 在 Init() 中初始化，之后所有操作复用同一个连接实例。
+// 全局变量 Rdb 在 InitRedis() 中初始化，之后所有操作复用同一个连接实例。
 // 连接参数从 config.toml 的 [redisConfig] 段读取。
 //
 // 注意：RAG 索引操作依赖 Redis 的 RediSearch 模块（FT.CREATE / FT.INFO / FT.DROPINDEX），
@@ -24,7 +24,7 @@ import (
 )
 
 // Rdb 是全局唯一的 Redis 客户端实例（包级私有，外部可通过包名访问：redis.Rdb）。
-// 在 Init() 中创建连接，之后所有操作都通过 Rdb 进行。
+// 在 InitRedis() 中创建连接，之后所有操作都通过 Rdb 进行。
 var Rdb *redisCli.Client
 
 // ctx 是一个永不取消的背景上下文，用于所有 Redis 操作。
@@ -32,14 +32,14 @@ var Rdb *redisCli.Client
 // 以便调用方控制超时和取消，但当前简单场景下包级 ctx 足够。
 var ctx = context.Background()
 
-// Init 初始化 Redis 客户端连接。
+// InitRedis 初始化 Redis 客户端连接。
 //
 // 从 config.toml 读取 host、port、password、db 四个参数，
 // 创建 go-redis 客户端并赋值给全局变量 Rdb。
 //
 // 注意：此函数不验证连接是否成功（未调用 Ping），
 // 实际的连接检测延迟到首次 Redis 操作时。
-func Init() {
+func InitRedis() {
 	conf := config.GetConfig()
 	host := conf.RedisConfig.RedisHost         // Redis 服务器地址
 	port := conf.RedisConfig.RedisPort         // Redis 端口，默认 6379

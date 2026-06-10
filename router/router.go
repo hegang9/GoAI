@@ -32,6 +32,7 @@ func InitRouter() *gin.Engine {
 	RegisterUserRouter(v1.Group("/user"))
 
 	// JWT 鉴权路由组 — 中间件只挂载一次，所有子组自动继承
+	// 空字符串表示在 /api/v1 下面再创建一个组，但自己不额外加路径前缀
 	auth := v1.Group("")
 	auth.Use(jwt.Auth())
 	{

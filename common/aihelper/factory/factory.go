@@ -64,6 +64,7 @@ func (f *AIModelFactory) registerCreators() {
 
 // CreateAIModel 根据类型创建 AI 模型。
 func (f *AIModelFactory) CreateAIModel(ctx context.Context, modelType string, config map[string]interface{}) (providerpkg.AIModel, error) {
+	// 获取模型对应的创建函数
 	creator, ok := f.creators[modelType]
 	if !ok {
 		logger.Error("CreateAIModel unsupported model type", "modelType", modelType)

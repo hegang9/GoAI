@@ -23,6 +23,8 @@ GopherAI 是一个 Go + Vue 的 AI 应用示例，后端基于 Gin，前端基�
 ├── vue-frontend/           # Vue 前端
 ├── docker-compose.yml      # 本地开发中间件编排
 ├── docs/API.md             # 接口文档
+├── docs/gorm_mapping_rules.md # GORM 映射规则说明
+├── docs/GORM 常用查询语法速查.md # GORM 常用查询速查
 └── 阅读顺序.md              # 项目阅读任务清单
 ```
 
