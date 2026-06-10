@@ -19,9 +19,11 @@ GopherAI 是一个 Go + Vue 的 AI 应用示例，后端基于 Gin，前端基�
 ├── fileutil/               # 文件校验与目录清理
 ├── mapper/                 # model 与 schema 之间的消息转换
 ├── utils/                  # 遗留通用工具（当前仅保留 MD5）
+├── common/aihelper/        # AI 会话管理、模型 provider、工厂与兼容入口
 ├── vue-frontend/           # Vue 前端
 ├── docker-compose.yml      # 本地开发中间件编排
-└── docs/API.md             # 接口文档
+├── docs/API.md             # 接口文档
+└── 阅读顺序.md              # 项目阅读任务清单
 ```
 
 ## 环境要求
@@ -136,8 +138,13 @@ go run main.go
 - `fileutil`：上传文件校验、目录文件清理
 - `mapper`：`model.Message` 与 `schema.Message` 的相互转换
 - `utils`：当前仅保留遗留 `MD5` 接口，新增通用逻辑不再继续放入该包
+- `common/aihelper/provider`：模型接口与 OpenAI / Ollama / RAG / MCP provider 实现
+- `common/aihelper/session`：单会话消息历史、持久化回调与同步/流式生成协调
+- `common/aihelper/factory`：根据模型类型和配置创建 provider 与 helper
+- `common/aihelper/manager`：按用户/会话维度管理 helper 生命周期
+- `common/aihelper`：保留兼容入口，降低上层调用改动面
 
-当前相关调用已迁移到这些明确包中，例如用户认证、JWT 中间件、RAG 文件上传以及 AI 消息转换逻辑。
+当前相关调用已迁移到这些明确包中，例如用户认证、JWT 中间件、RAG 文件上传、AI 消息转换以及 AIHelper 内部职责拆分逻辑。
 
 ## 启动前端
 

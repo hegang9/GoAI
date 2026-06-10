@@ -1,1 +1,3 @@
-Every code change must also review and update README.md to keep documentation in sync when behavior, structure, usage, or architecture changes.
+1. 每个代码变更都必须更新 `README.md`，保持文档与代码的同步。
+2. 每次生成代码都要加上必要的中文注释，包括函数、结构、变量等。
+3. 每次生成代码都要加上必要的日志记录，包括错误处理、性能监控等，使用本项目的日志库 `common/logger`。
