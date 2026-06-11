@@ -17,23 +17,13 @@ func GetUserSessionsByUserName(c *gin.Context) {
 	JSON(c, dto.GetUserSessionsResponse{Sessions: converter.SessionInfoBOsToDTO(sessions)}, errCode)
 }
 
-func CreateSessionAndSendMessage(c *gin.Context) {
-	req, ok := BindJSON[dto.CreateSessionRequest](c)
-	if !ok {
-		return
-	}
-
+func CreateSessionAndSendMessage(c *gin.Context, req dto.CreateSessionRequest) {
 	userName := c.GetString("userName")
 	result, errCode := session.CreateSessionAndSendMessage(userName, req.UserQuestion, req.ModelType)
 	JSON(c, converter.AIResponseBOToCreateSessionResponse(result), errCode)
 }
 
-func CreateStreamSessionAndSendMessage(c *gin.Context) {
-	req, ok := BindJSON[dto.CreateSessionRequest](c)
-	if !ok {
-		return
-	}
-
+func CreateStreamSessionAndSendMessage(c *gin.Context, req dto.CreateSessionRequest) {
 	userName := c.GetString("userName")
 
 	c.Header("Content-Type", "text/event-stream")
@@ -58,23 +48,13 @@ func CreateStreamSessionAndSendMessage(c *gin.Context) {
 	}
 }
 
-func ChatSend(c *gin.Context) {
-	req, ok := BindJSON[dto.ChatSendRequest](c)
-	if !ok {
-		return
-	}
-
+func ChatSend(c *gin.Context, req dto.ChatSendRequest) {
 	userName := c.GetString("userName")
 	result, errCode := session.ChatSend(userName, req.SessionID, req.UserQuestion, req.ModelType)
 	JSON(c, converter.AIResponseBOToChatSendResponse(result), errCode)
 }
 
-func ChatStreamSend(c *gin.Context) {
-	req, ok := BindJSON[dto.ChatSendRequest](c)
-	if !ok {
-		return
-	}
-
+func ChatStreamSend(c *gin.Context, req dto.ChatSendRequest) {
 	userName := c.GetString("userName")
 
 	c.Header("Content-Type", "text/event-stream")
@@ -90,12 +70,7 @@ func ChatStreamSend(c *gin.Context) {
 	}
 }
 
-func ChatHistory(c *gin.Context) {
-	req, ok := BindJSON[dto.ChatHistoryRequest](c)
-	if !ok {
-		return
-	}
-
+func ChatHistory(c *gin.Context, req dto.ChatHistoryRequest) {
 	userName := c.GetString("userName")
 	history, errCode := session.GetChatHistory(userName, req.SessionID)
 	JSON(c, dto.ChatHistoryResponse{History: converter.MessageBOsToHistoryDTO(history)}, errCode)

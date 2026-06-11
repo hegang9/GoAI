@@ -8,32 +8,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func Login(c *gin.Context) {
-	req, ok := BindJSON[dto.LoginRequest](c)
-	if !ok {
-		return
-	}
-
+func Login(c *gin.Context, req dto.LoginRequest) {
 	userBO, errCode := user.Login(req.Username, req.Password)
 	JSON(c, converter.UserLoginResponse(userBO), errCode)
 }
 
-func Register(c *gin.Context) {
-	req, ok := BindJSON[dto.RegisterRequest](c)
-	if !ok {
-		return
-	}
-
+func Register(c *gin.Context, req dto.RegisterRequest) {
 	userBO, errCode := user.Register(req.Email, req.Password, req.Captcha)
 	JSON(c, converter.UserRegisterResponse(userBO), errCode)
 }
 
-func HandleCaptcha(c *gin.Context) {
-	req, ok := BindJSON[dto.CaptchaRequest](c)
-	if !ok {
-		return
-	}
-
+func HandleCaptcha(c *gin.Context, req dto.CaptchaRequest) {
 	errCode := user.SendCaptcha(req.Email)
 	JSON(c, dto.CaptchaResponse{}, errCode)
 }

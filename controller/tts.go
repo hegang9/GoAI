@@ -21,12 +21,7 @@ func NewTTSServices() *TTSServices {
 	}
 }
 
-func CreateTTSTask(c *gin.Context) {
-	req, ok := BindJSON[dto.TTSRequest](c)
-	if !ok {
-		return
-	}
-
+func CreateTTSTask(c *gin.Context, req dto.TTSRequest) {
 	if req.Text == "" {
 		JSON(c, nil, code.CodeInvalidParams)
 		return

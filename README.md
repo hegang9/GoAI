@@ -162,6 +162,16 @@ npm run serve
 
 详见 `docs/API.md`。
 
+## JSON 控制器约定
+
+为统一 `application/json` 接口的请求绑定与响应处理，项目在 `controller/common.go` 中提供了通用辅助函数：
+
+- `controller.BindJSON[T]`：统一完成 JSON 请求体绑定与参数校验，参数错误时直接返回标准错误响应。
+- `controller.JSON`：统一输出业务成功或失败响应，减少各控制器重复拼装返回值。
+- `controller.Handler(...)`：路由层为 `application/json` 接口注册统一包装器，例如 `router/user.go`、`router/ai.go` 中的 `r.POST(..., controller.Handler(controller.xxx))`。
+
+采用这一约定后，控制器处理函数可以直接声明为接收类型化 DTO，例如 `func(c *gin.Context, req dto.LoginRequest)`，无需在每个处理函数里重复编写 `ShouldBindJSON` 和参数错误响应逻辑。
+
 ## 注意事项
 
 - RAG 文件上传只允许 `.md` 和 `.txt` 文件。
