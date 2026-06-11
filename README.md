@@ -168,7 +168,7 @@ npm run serve
 
 - `controller.BindJSON[T]`：统一完成 JSON 请求体绑定与参数校验，参数错误时直接返回标准错误响应。
 - `controller.JSON`：统一输出业务成功或失败响应，减少各控制器重复拼装返回值。
-- `controller.Handler(...)`：路由层为 `application/json` 接口注册统一包装器，例如 `router/user.go`、`router/ai.go` 中的 `r.POST(..., controller.Handler(controller.xxx))`。
+- `controller.Handler(...)`：提供底层 JSON 绑定包装实现；`router` 包再通过同名 `Handler(...)` 薄包装暴露给路由注册使用，例如 `router/user.go`、`router/ai.go` 中的 `r.POST(..., Handler(controller.xxx))`。
 
 采用这一约定后，控制器处理函数可以直接声明为接收类型化 DTO，例如 `func(c *gin.Context, req dto.LoginRequest)`，无需在每个处理函数里重复编写 `ShouldBindJSON` 和参数错误响应逻辑。
 
