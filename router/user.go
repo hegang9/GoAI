@@ -8,8 +8,8 @@ import (
 
 func RegisterUserRouter(r *gin.RouterGroup) {
 	{
-		r.POST("/register", controller.Handler(controller.Register))
-		r.POST("/login", controller.Handler(controller.Login))
-		r.POST("/captcha", controller.Handler(controller.HandleCaptcha))
+		r.POST("/register", Handler(controller.Register))
+		r.POST("/login", Handler(controller.Login))
+		r.POST("/captcha", Handler(controller.HandleCaptcha))
 	}
 }
