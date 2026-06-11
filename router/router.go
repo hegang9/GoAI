@@ -28,7 +28,7 @@ func InitRouter() *gin.Engine {
 
 	v1 := r.Group("/api/v1")
 
-	// 公开路由
+	// 公开路由，不需要鉴权
 	RegisterUserRouter(v1.Group("/user"))
 
 	// JWT 鉴权路由组 — 中间件只挂载一次，所有子组自动继承
