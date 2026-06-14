@@ -31,7 +31,7 @@ func NewAIHelper(aiModel providerpkg.AIModel, sessionID string) *AIHelper {
 		model:    aiModel,
 		messages: make([]*model.Message, 0),
 		saveFunc: func(msg *model.Message) (*model.Message, error) {
-			data := rabbitmq.GenerateMessageMQParam(msg.SessionID, msg.Content, msg.UserName, msg.IsUser)
+			data := rabbitmq.GenerateMessageMQParam(msg.SessionID, msg.Content, msg.AccountNo, msg.IsUser)
 			err := rabbitmq.RMQMessage.Publish(data)
 			if err != nil {
 				logger.Error("AIHelper default saveFunc publish failed", "sessionID", msg.SessionID, "err", err)
@@ -43,11 +43,11 @@ func NewAIHelper(aiModel providerpkg.AIModel, sessionID string) *AIHelper {
 }
 
 // AddMessage 添加消息到内存中并在需要时触发持久化。
-func (a *AIHelper) AddMessage(content string, userName string, isUser bool, save bool) {
+func (a *AIHelper) AddMessage(content string, accountNo string, isUser bool, save bool) {
 	userMsg := model.Message{
 		SessionID: a.SessionID,
 		Content:   content,
-		UserName:  userName,
+		AccountNo: accountNo,
 		IsUser:    isUser,
 	}
 	// 这里统一加锁，避免流式和同步路径同时追加消息时产生竞态。
@@ -76,8 +76,8 @@ func (a *AIHelper) GetMessages() []*model.Message {
 }
 
 // GenerateResponse 生成同步响应。
-func (a *AIHelper) GenerateResponse(userName string, ctx context.Context, userQuestion string) (*model.Message, error) {
-	a.AddMessage(userQuestion, userName, true, true)
+func (a *AIHelper) GenerateResponse(accountNo string, ctx context.Context, userQuestion string) (*model.Message, error) {
+	a.AddMessage(userQuestion, accountNo, true, true)
 
 	a.mu.RLock()
 	messages := mapper.ConvertToSchemaMessages(a.messages)
@@ -89,14 +89,14 @@ func (a *AIHelper) GenerateResponse(userName string, ctx context.Context, userQu
 		return nil, err
 	}
 
-	modelMsg := mapper.ConvertToModelMessage(a.SessionID, userName, schemaMsg)
-	a.AddMessage(modelMsg.Content, userName, false, true)
+	modelMsg := mapper.ConvertToModelMessage(a.SessionID, accountNo, schemaMsg)
+	a.AddMessage(modelMsg.Content, accountNo, false, true)
 	return modelMsg, nil
 }
 
 // StreamResponse 生成流式响应。
-func (a *AIHelper) StreamResponse(userName string, ctx context.Context, cb providerpkg.StreamCallback, userQuestion string) (*model.Message, error) {
-	a.AddMessage(userQuestion, userName, true, true)
+func (a *AIHelper) StreamResponse(accountNo string, ctx context.Context, cb providerpkg.StreamCallback, userQuestion string) (*model.Message, error) {
+	a.AddMessage(userQuestion, accountNo, true, true)
 
 	a.mu.RLock()
 	messages := mapper.ConvertToSchemaMessages(a.messages)
@@ -109,11 +109,11 @@ func (a *AIHelper) StreamResponse(userName string, ctx context.Context, cb provi
 	}
 	modelMsg := &model.Message{
 		SessionID: a.SessionID,
-		UserName:  userName,
+		AccountNo: accountNo,
 		Content:   content,
 		IsUser:    false,
 	}
-	a.AddMessage(modelMsg.Content, userName, false, true)
+	a.AddMessage(modelMsg.Content, accountNo, false, true)
 	return modelMsg, nil
 }
 

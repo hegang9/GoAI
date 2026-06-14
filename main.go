@@ -87,15 +87,15 @@ func readDataFromDBAndInitHelper() error {
 		c := make(map[string]interface{})
 
 		// 为每个session恢复对应的 AIHelper
-		helper, err := manager.GetOrCreateAIHelper(m.UserName, m.SessionID, modelType, c)
+		helper, err := manager.GetOrCreateAIHelper(m.AccountNo, m.SessionID, modelType, c)
 		if err != nil {
-			logger.Error("readDataFromDB failed to create helper", "user", m.UserName, "session", m.SessionID, "err", err)
+			logger.Error("readDataFromDB failed to create helper", "accountNo", m.AccountNo, "session", m.SessionID, "err", err)
 			continue
 		}
 		logger.Debug("readDataFromDB init", "session", helper.SessionID)
 		// save=false：仅重建内存上下文，不重复持久化（避免向 MQ/DB 二次写入）。
 		// 保留持久化的 IsUser，确保用户/AI 角色与 DB 完全一致。
-		helper.AddMessage(m.Content, m.UserName, m.IsUser, false)
+		helper.AddMessage(m.Content, m.AccountNo, m.IsUser, false)
 	}
 
 	logger.Info("AIHelperManager init success")

@@ -22,7 +22,7 @@ type RAGQuery struct {
 // NewRAGQuery 基于已建立索引的文档名创建检索器。
 //
 // 该函数仅关注“检索逻辑”，不再负责定位用户上传文件——
-// 文件系统约定（uploads/{username}）已下沉到 store.go 的 ResolveUserDocFilename，
+// 文件系统约定（uploads/{account_no}）已下沉到 store.go 的 ResolveUserDocFilename，
 // 调用方先解析出文件名，再传入此处构建检索器。
 func NewRAGQuery(ctx context.Context, filename string) (*RAGQuery, error) {
 	cfg := config.GetConfig()

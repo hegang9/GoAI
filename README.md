@@ -63,6 +63,13 @@ export OPENAI_BASE_URL="https://api.openai.com/v1"
 
 日志级别通过 `LOG_LEVEL` 控制，可选 `debug`、`info`、`warn`、`error`，默认 `info`。
 
+## 用户身份字段
+
+- `AccountNo` / `account_no`：系统生成的内部账号编号，数据库唯一，用于 JWT、会话归属、上传目录和日志排查，不作为登录输入。
+- `Name` / `name`：用户昵称或显示名，允许重复，不能作为用户唯一标识，也不能与 `AccountNo` 混用。
+- `Email` / `email`：注册邮箱，数据库唯一，用于验证码发送、邮箱重复注册校验和用户登录。
+- RAG 上传文件按账号编号隔离，目录约定为 `uploads/{account_no}`，避免把昵称或邮箱写入文件路径。
+
 ## 启动依赖
 
 ### 方式一：使用已有远程中间件
@@ -152,9 +159,18 @@ go run main.go
 - `common/aihelper/manager`：按用户/会话维度管理 helper 生命周期
 - `common/aihelper`：保留兼容入口，降低上层调用改动面
 - `service/tts`：TTS 业务服务层，编排 `common/tts` 并返回 `bo` 与错误码，使 controller 不再直接依赖基础设施
-- `common/rag`：RAG 已按职责拆分为多个文件——`embedding.go`（向量生成器）、`document.go`（文档加载/切块）、`indexer.go`（向量索引与生命周期）、`retriever.go`（向量检索）、`prompt.go`（提示词构造）、`store.go`（`uploads/{username}` 文件系统约定）
+- `common/rag`：RAG 已按职责拆分为多个文件——`embedding.go`（向量生成器）、`document.go`（文档加载/切块）、`indexer.go`（向量索引与生命周期）、`retriever.go`（向量检索）、`prompt.go`（提示词构造）、`store.go`（`uploads/{account_no}` 文件系统约定）
 
 当前相关调用已迁移到这些明确包中，例如用户认证、JWT 中间件、RAG 文件上传、AI 消息转换以及 AIHelper 内部职责拆分逻辑。
+
+### 密码处理
+
+`auth/password.go` 提供用户密码相关的基础能力：
+
+- `HashPassword`：使用 bcrypt 对明文密码进行不可逆哈希，哈希结果包含随机盐，可存入数据库。
+- `CheckPasswordHash`：登录时将用户输入的明文密码与数据库中的 bcrypt 哈希值进行比对，匹配成功返回 `true`。
+
+业务代码不应保存或比较明文密码，也不应使用 MD5/SHA 等普通摘要算法处理登录密码。
 
 ## 启动前端
 

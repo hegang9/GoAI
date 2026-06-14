@@ -25,14 +25,14 @@ func NewAIHelperManager() *AIHelperManager {
 }
 
 // GetOrCreateAIHelper 获取或创建指定用户会话的助手实例。
-func (m *AIHelperManager) GetOrCreateAIHelper(userName string, sessionID string, modelType string, config map[string]interface{}) (*sessionpkg.AIHelper, error) {
+func (m *AIHelperManager) GetOrCreateAIHelper(accountNo string, sessionID string, modelType string, config map[string]interface{}) (*sessionpkg.AIHelper, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	userHelpers, exists := m.helpers[userName]
+	userHelpers, exists := m.helpers[accountNo]
 	if !exists {
 		userHelpers = make(map[string]*sessionpkg.AIHelper)
-		m.helpers[userName] = userHelpers
+		m.helpers[accountNo] = userHelpers
 	}
 
 	helper, exists := userHelpers[sessionID]
@@ -43,7 +43,7 @@ func (m *AIHelperManager) GetOrCreateAIHelper(userName string, sessionID string,
 	factory := factorypkg.GetGlobalFactory()
 	helper, err := factory.CreateAIHelper(ctx, modelType, sessionID, config)
 	if err != nil {
-		logger.Error("AIHelperManager GetOrCreateAIHelper create failed", "user", userName, "sessionID", sessionID, "err", err)
+		logger.Error("AIHelperManager GetOrCreateAIHelper create failed", "accountNo", accountNo, "sessionID", sessionID, "err", err)
 		return nil, err
 	}
 	userHelpers[sessionID] = helper
@@ -51,11 +51,11 @@ func (m *AIHelperManager) GetOrCreateAIHelper(userName string, sessionID string,
 }
 
 // GetAIHelper 获取指定用户会话的助手实例。
-func (m *AIHelperManager) GetAIHelper(userName string, sessionID string) (*sessionpkg.AIHelper, bool) {
+func (m *AIHelperManager) GetAIHelper(accountNo string, sessionID string) (*sessionpkg.AIHelper, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	userHelpers, exists := m.helpers[userName]
+	userHelpers, exists := m.helpers[accountNo]
 	if !exists {
 		return nil, false
 	}
@@ -64,27 +64,27 @@ func (m *AIHelperManager) GetAIHelper(userName string, sessionID string) (*sessi
 }
 
 // RemoveAIHelper 删除指定用户会话的助手实例。
-func (m *AIHelperManager) RemoveAIHelper(userName string, sessionID string) {
+func (m *AIHelperManager) RemoveAIHelper(accountNo string, sessionID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	userHelpers, exists := m.helpers[userName]
+	userHelpers, exists := m.helpers[accountNo]
 	if !exists {
 		return
 	}
 	delete(userHelpers, sessionID)
 	if len(userHelpers) == 0 {
-		delete(m.helpers, userName)
+		delete(m.helpers, accountNo)
 	}
-	logger.Info("AIHelperManager RemoveAIHelper success", "user", userName, "sessionID", sessionID)
+	logger.Info("AIHelperManager RemoveAIHelper success", "accountNo", accountNo, "sessionID", sessionID)
 }
 
 // GetUserSessions 获取指定用户的所有会话 ID。
-func (m *AIHelperManager) GetUserSessions(userName string) []string {
+func (m *AIHelperManager) GetUserSessions(accountNo string) []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	userHelpers, exists := m.helpers[userName]
+	userHelpers, exists := m.helpers[accountNo]
 	if !exists {
 		return []string{}
 	}

@@ -13,17 +13,17 @@ import (
 //   - User.ID 是 int64 自增主键，Session.ID 是 varchar(36) 手动指定，
 //     通常填入 UUID（如 "550e8400-e29b-41d4-a716-446655440000"），
 //     适合分布式场景：多个服务生成 ID 不会冲突。
-//   - UserName 通过字符串关联 User.Username，而非外键，这是一种
+//   - AccountNo 通过字符串关联 User.AccountNo，而非外键，这是一种
 //     简单的"逻辑外键"设计，比数据库外键更灵活但缺少数据库级约束。
 type Session struct {
 	// ID 是会话的唯一标识，使用 UUID v4 字符串（36 字符包含连字符）。
 	// 不用自增 ID 的好处：分布式友好、避免被遍历猜测，前端可先生成 ID。
 	ID string `gorm:"primaryKey;type:varchar(36)" json:"id"`
 
-	// UserName 记录该会话属于哪个用户，通过 Username 字段关联 User 表。
+	// AccountNo 记录该会话属于哪个内部账号，通过 User.AccountNo 逻辑关联用户。
 	// index 创建普通索引，加速"查某用户的所有会话"这类查询。
 	// not null 在数据库层面强制该字段必须有值。
-	UserName string `gorm:"index;not null" json:"username"`
+	AccountNo string `gorm:"index;not null;column:account_no" json:"account_no"`
 
 	// Title 是会话的标题/摘要，比如首条消息的截断内容，用于在会话列表中展示。
 	Title string `gorm:"type:varchar(100)" json:"title"`

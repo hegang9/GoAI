@@ -6,10 +6,10 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-func ConvertToModelMessage(sessionID string, userName string, msg *schema.Message) *model.Message {
+func ConvertToModelMessage(sessionID string, accountNo string, msg *schema.Message) *model.Message {
 	return &model.Message{
 		SessionID: sessionID,
-		UserName:  userName,
+		AccountNo: accountNo,
 		Content:   msg.Content,
 	}
 }

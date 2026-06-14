@@ -17,13 +17,13 @@ func TestHandlerBindsJSONAndDelegatesToControllerHandler(t *testing.T) {
 	called := false
 	r.POST("/login", Handler(func(c *gin.Context, req dto.LoginRequest) {
 		called = true
-		if req.Username != "alice" {
-			t.Fatalf("expected username alice, got %s", req.Username)
+		if req.Email != "alice@example.com" {
+			t.Fatalf("expected email alice@example.com, got %s", req.Email)
 		}
 		c.Status(http.StatusNoContent)
 	}))
 
-	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(`{"username":"alice","password":"secret"}`))
+	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(`{"email":"alice@example.com","password":"secret"}`))
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 

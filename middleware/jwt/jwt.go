@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Auth 校验请求中的 JWT，并将解析出的用户名写入 Gin 上下文。
+// Auth 校验请求中的 JWT，并将解析出的账号编号写入 Gin 上下文。
 func Auth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 复用统一响应结构，生成 token 无效时的返回体。
@@ -36,16 +36,16 @@ func Auth() gin.HandlerFunc {
 
 		// 只记录 token 前缀，避免完整凭证泄露到日志。
 		logger.Debug("JWT token received", "token_prefix", token[:min(10, len(token))])
-		// 校验 token，并从中解析出当前登录用户。
-		userName, ok := auth.ParseToken(token)
+		// 校验 token，并从中解析出当前登录用户的内部账号编号。
+		accountNo, ok := auth.ParseToken(token)
 		if !ok {
 			c.JSON(code.CodeInvalidToken.HTTPStatus(), res.CodeOf(code.CodeInvalidToken))
 			c.Abort()
 			return
 		}
 
-		// 鉴权通过后，把用户名写入 Gin 上下文，供后续 controller 读取。
-		c.Set("userName", userName)
+		// 鉴权通过后，把账号编号写入 Gin 上下文，供后续 controller 读取。
+		c.Set("accountNo", accountNo)
 		// 放行，让后面的中间件或业务 handler 继续执行。
 		c.Next()
 	}

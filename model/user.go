@@ -34,16 +34,16 @@ type User struct {
 	// 类型为 int64 适合自增 ID，能容纳非常大的数据量（约 9.2 × 10¹⁸）。
 	ID int64 `gorm:"primaryKey" json:"id"`
 
-	// Name 存储用户昵称/显示名，varchar(50) 限制最多 50 个字符，避免过长输入。
+	// Name 存储用户昵称/显示名，允许重复，不能与 AccountNo 混用。
 	Name string `gorm:"type:varchar(50)" json:"name"`
 
 	// Email 存储邮箱地址，varchar(100) 足够容纳常见邮箱。
-	// index 标签会为该列创建普通索引，加速按邮箱查询（如登录、查找用户）。
-	Email string `gorm:"type:varchar(100);index" json:"email"`
+	// uniqueIndex 标签会为该列创建普通索引，加速按邮箱查询（如登录、查找用户）。
+	Email string `gorm:"type:varchar(100);uniqueIndex;not null" json:"email"`
 
-	// Username 是登录用户名，uniqueIndex 创建唯一索引，保证不重复。
+	// AccountNo 是系统生成的内部账号编号，uniqueIndex 创建唯一索引，保证不重复。
 	// 数据库层面强制约束，比应用层校验更可靠。
-	Username string `gorm:"type:varchar(50);uniqueIndex" json:"username"`
+	AccountNo string `gorm:"type:varchar(50);uniqueIndex;not null" json:"account_no"`
 
 	// Password 存储密码哈希（如 bcrypt 结果），255 长度足够容纳各种哈希算法。
 	// json:"-" 表示序列化为 JSON 时跳过该字段，绝不让密码哈希泄露到前端响应中。

@@ -19,12 +19,12 @@ import (
 type AliRAGModel struct {
 	// llm 持有底层聊天模型实例。
 	llm einomodel.ToolCallingChatModel
-	// username 用于定位当前用户的知识文档。
-	username string
+	// accountNo 用于定位当前账号编号的知识文档。
+	accountNo string
 }
 
 // NewAliRAGModel 创建 RAG 模型实例。
-func NewAliRAGModel(ctx context.Context, username string) (*AliRAGModel, error) {
+func NewAliRAGModel(ctx context.Context, accountNo string) (*AliRAGModel, error) {
 	key := os.Getenv("OPENAI_API_KEY")
 	conf := config.GetConfig()
 	modelName := conf.RagModelConfig.RagChatModelName
@@ -36,11 +36,11 @@ func NewAliRAGModel(ctx context.Context, username string) (*AliRAGModel, error) 
 		APIKey:  key,
 	})
 	if err != nil {
-		logger.Error("NewAliRAGModel failed", "user", username, "err", err)
+		logger.Error("NewAliRAGModel failed", "accountNo", accountNo, "err", err)
 		return nil, fmt.Errorf("create ali rag model failed: %v", err)
 	}
-	logger.Info("NewAliRAGModel success", "user", username, "model", modelName)
-	return &AliRAGModel{llm: llm, username: username}, nil
+	logger.Info("NewAliRAGModel success", "accountNo", accountNo, "model", modelName)
+	return &AliRAGModel{llm: llm, accountNo: accountNo}, nil
 }
 
 // GenerateResponse 生成同步响应，并在可用时引入检索增强上下文。
@@ -48,12 +48,12 @@ func (o *AliRAGModel) GenerateResponse(ctx context.Context, messages []*schema.M
 	// ragMessages 表示检索增强后的消息集合。
 	ragMessages, err := o.buildRAGMessages(ctx, messages)
 	if err != nil {
-		logger.Error("AliRAGModel GenerateResponse buildRAGMessages failed", "user", o.username, "err", err)
+		logger.Error("AliRAGModel GenerateResponse buildRAGMessages failed", "accountNo", o.accountNo, "err", err)
 		return nil, err
 	}
 	resp, err := o.llm.Generate(ctx, ragMessages)
 	if err != nil {
-		logger.Error("AliRAGModel GenerateResponse llm failed", "user", o.username, "err", err)
+		logger.Error("AliRAGModel GenerateResponse llm failed", "accountNo", o.accountNo, "err", err)
 		return nil, fmt.Errorf("ali rag generate failed: %v", err)
 	}
 	return resp, nil
@@ -63,12 +63,12 @@ func (o *AliRAGModel) GenerateResponse(ctx context.Context, messages []*schema.M
 func (o *AliRAGModel) StreamResponse(ctx context.Context, messages []*schema.Message, cb StreamCallback) (string, error) {
 	ragMessages, err := o.buildRAGMessages(ctx, messages)
 	if err != nil {
-		logger.Warn("AliRAGModel StreamResponse fallback to raw messages", "user", o.username, "err", err)
+		logger.Warn("AliRAGModel StreamResponse fallback to raw messages", "accountNo", o.accountNo, "err", err)
 		ragMessages = messages
 	}
 	stream, err := o.llm.Stream(ctx, ragMessages)
 	if err != nil {
-		logger.Error("AliRAGModel StreamResponse start failed", "user", o.username, "err", err)
+		logger.Error("AliRAGModel StreamResponse start failed", "accountNo", o.accountNo, "err", err)
 		return "", fmt.Errorf("ali rag stream failed: %v", err)
 	}
 	defer stream.Close()
@@ -80,7 +80,7 @@ func (o *AliRAGModel) StreamResponse(ctx context.Context, messages []*schema.Mes
 			break
 		}
 		if err != nil {
-			logger.Error("AliRAGModel StreamResponse recv failed", "user", o.username, "err", err)
+			logger.Error("AliRAGModel StreamResponse recv failed", "accountNo", o.accountNo, "err", err)
 			return "", fmt.Errorf("ali rag stream recv failed: %v", err)
 		}
 		if len(msg.Content) > 0 {
@@ -98,15 +98,15 @@ func (o *AliRAGModel) buildRAGMessages(ctx context.Context, messages []*schema.M
 	}
 
 	// 先解析当前用户已上传的文档名（文件系统约定由 rag.store 承载），再构建检索器。
-	filename, err := rag.ResolveUserDocFilename(o.username)
+	filename, err := rag.ResolveUserDocFilename(o.accountNo)
 	if err != nil {
-		logger.Warn("AliRAGModel buildRAGMessages resolve file failed", "user", o.username, "err", err)
+		logger.Warn("AliRAGModel buildRAGMessages resolve file failed", "accountNo", o.accountNo, "err", err)
 		return messages, nil
 	}
 
 	ragQuery, err := rag.NewRAGQuery(ctx, filename)
 	if err != nil {
-		logger.Warn("AliRAGModel buildRAGMessages create query failed", "user", o.username, "err", err)
+		logger.Warn("AliRAGModel buildRAGMessages create query failed", "accountNo", o.accountNo, "err", err)
 		return messages, nil
 	}
 
@@ -114,7 +114,7 @@ func (o *AliRAGModel) buildRAGMessages(ctx context.Context, messages []*schema.M
 	query := lastMessage.Content
 	docs, err := ragQuery.RetrieveDocuments(ctx, query)
 	if err != nil {
-		logger.Warn("AliRAGModel buildRAGMessages retrieve failed", "user", o.username, "err", err)
+		logger.Warn("AliRAGModel buildRAGMessages retrieve failed", "accountNo", o.accountNo, "err", err)
 		return messages, nil
 	}
 

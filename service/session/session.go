@@ -15,17 +15,17 @@ import (
 
 var ctx = context.Background()
 
-func buildAIHelperConfig(userName string) map[string]any {
+func buildAIHelperConfig(accountNo string) map[string]any {
 	conf := config.GetConfig()
 	return map[string]any{
-		"apiKey":   conf.AIModelConfig.APIKey,
-		"username": userName,
+		"apiKey":     conf.AIModelConfig.APIKey,
+		"account_no": accountNo,
 	}
 }
 
-func GetUserSessionsByUserName(userName string) ([]bo.SessionInfoBO, code.Code) {
+func GetUserSessionsByAccountNo(accountNo string) ([]bo.SessionInfoBO, code.Code) {
 	manager := aihelper.GetGlobalManager()
-	sessions := manager.GetUserSessions(userName)
+	sessions := manager.GetUserSessions(accountNo)
 
 	result := make([]bo.SessionInfoBO, 0, len(sessions))
 	for _, sess := range sessions {
@@ -38,11 +38,11 @@ func GetUserSessionsByUserName(userName string) ([]bo.SessionInfoBO, code.Code) 
 	return result, code.CodeSuccess
 }
 
-func CreateSessionAndSendMessage(userName, userQuestion, modelType string) (bo.AIResponseBO, code.Code) {
+func CreateSessionAndSendMessage(accountNo, userQuestion, modelType string) (bo.AIResponseBO, code.Code) {
 	newSession := &model.Session{
-		ID:       uuid.New().String(),
-		UserName: userName,
-		Title:    userQuestion,
+		ID:        uuid.New().String(),
+		AccountNo: accountNo,
+		Title:     userQuestion,
 	}
 	createdSession, err := dao.CreateSession(newSession)
 	if err != nil {
@@ -51,13 +51,13 @@ func CreateSessionAndSendMessage(userName, userQuestion, modelType string) (bo.A
 	}
 
 	manager := aihelper.GetGlobalManager()
-	helper, err := manager.GetOrCreateAIHelper(userName, createdSession.ID, modelType, buildAIHelperConfig(userName))
+	helper, err := manager.GetOrCreateAIHelper(accountNo, createdSession.ID, modelType, buildAIHelperConfig(accountNo))
 	if err != nil {
 		logger.Error("CreateSessionAndSendMessage GetOrCreateAIHelper", "err", err)
 		return bo.AIResponseBO{}, code.AIModelFail
 	}
 
-	aiResponse, err_ := helper.GenerateResponse(userName, ctx, userQuestion)
+	aiResponse, err_ := helper.GenerateResponse(accountNo, ctx, userQuestion)
 	if err_ != nil {
 		logger.Error("CreateSessionAndSendMessage GenerateResponse", "err", err_)
 		return bo.AIResponseBO{}, code.AIModelFail
@@ -66,11 +66,11 @@ func CreateSessionAndSendMessage(userName, userQuestion, modelType string) (bo.A
 	return bo.AIResponseBO{SessionID: createdSession.ID, Content: aiResponse.Content}, code.CodeSuccess
 }
 
-func CreateStreamSessionOnly(userName, userQuestion string) (string, code.Code) {
+func CreateStreamSessionOnly(accountNo, userQuestion string) (string, code.Code) {
 	newSession := &model.Session{
-		ID:       uuid.New().String(),
-		UserName: userName,
-		Title:    userQuestion,
+		ID:        uuid.New().String(),
+		AccountNo: accountNo,
+		Title:     userQuestion,
 	}
 	createdSession, err := dao.CreateSession(newSession)
 	if err != nil {
@@ -83,15 +83,15 @@ func CreateStreamSessionOnly(userName, userQuestion string) (string, code.Code) 
 // StreamMessageToExistingSession 向已存在的会话发送消息并以流式方式产出 AI 回复。
 // onChunk 为内容分片回调，由调用方（controller / streaming adapter）决定如何编码与传输；
 // service 层只负责驱动 AI 流式生成，不再依赖任何 HTTP 传输细节。
-func StreamMessageToExistingSession(userName, sessionID, userQuestion, modelType string, onChunk func(chunk string)) code.Code {
+func StreamMessageToExistingSession(accountNo, sessionID, userQuestion, modelType string, onChunk func(chunk string)) code.Code {
 	manager := aihelper.GetGlobalManager()
-	helper, err := manager.GetOrCreateAIHelper(userName, sessionID, modelType, buildAIHelperConfig(userName))
+	helper, err := manager.GetOrCreateAIHelper(accountNo, sessionID, modelType, buildAIHelperConfig(accountNo))
 	if err != nil {
 		logger.Error("StreamMessageToExistingSession GetOrCreateAIHelper", "err", err)
 		return code.AIModelFail
 	}
 
-	if _, err := helper.StreamResponse(userName, ctx, onChunk, userQuestion); err != nil {
+	if _, err := helper.StreamResponse(accountNo, ctx, onChunk, userQuestion); err != nil {
 		logger.Error("StreamMessageToExistingSession StreamResponse", "err", err)
 		return code.AIModelFail
 	}
@@ -99,15 +99,15 @@ func StreamMessageToExistingSession(userName, sessionID, userQuestion, modelType
 	return code.CodeSuccess
 }
 
-func ChatSend(userName, sessionID, userQuestion, modelType string) (bo.AIResponseBO, code.Code) {
+func ChatSend(accountNo, sessionID, userQuestion, modelType string) (bo.AIResponseBO, code.Code) {
 	manager := aihelper.GetGlobalManager()
-	helper, err := manager.GetOrCreateAIHelper(userName, sessionID, modelType, buildAIHelperConfig(userName))
+	helper, err := manager.GetOrCreateAIHelper(accountNo, sessionID, modelType, buildAIHelperConfig(accountNo))
 	if err != nil {
 		logger.Error("ChatSend GetOrCreateAIHelper", "err", err)
 		return bo.AIResponseBO{}, code.AIModelFail
 	}
 
-	aiResponse, err_ := helper.GenerateResponse(userName, ctx, userQuestion)
+	aiResponse, err_ := helper.GenerateResponse(accountNo, ctx, userQuestion)
 	if err_ != nil {
 		logger.Error("ChatSend GenerateResponse", "err", err_)
 		return bo.AIResponseBO{}, code.AIModelFail
@@ -116,9 +116,9 @@ func ChatSend(userName, sessionID, userQuestion, modelType string) (bo.AIRespons
 	return bo.AIResponseBO{Content: aiResponse.Content}, code.CodeSuccess
 }
 
-func GetChatHistory(userName, sessionID string) ([]bo.MessageBO, code.Code) {
+func GetChatHistory(accountNo, sessionID string) ([]bo.MessageBO, code.Code) {
 	manager := aihelper.GetGlobalManager()
-	helper, exists := manager.GetAIHelper(userName, sessionID)
+	helper, exists := manager.GetAIHelper(accountNo, sessionID)
 	if !exists {
 		return nil, code.CodeRecordNotFound
 	}
@@ -139,6 +139,6 @@ func GetChatHistory(userName, sessionID string) ([]bo.MessageBO, code.Code) {
 }
 
 // ChatStreamSend 在已有会话上发起流式对话，是 StreamMessageToExistingSession 的语义化别名。
-func ChatStreamSend(userName, sessionID, userQuestion, modelType string, onChunk func(chunk string)) code.Code {
-	return StreamMessageToExistingSession(userName, sessionID, userQuestion, modelType, onChunk)
+func ChatStreamSend(accountNo, sessionID, userQuestion, modelType string, onChunk func(chunk string)) code.Code {
+	return StreamMessageToExistingSession(accountNo, sessionID, userQuestion, modelType, onChunk)
 }

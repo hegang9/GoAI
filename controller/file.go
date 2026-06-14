@@ -17,14 +17,15 @@ func UploadRagFile(c *gin.Context) {
 		return
 	}
 
-	username := c.GetString("userName")
-	if username == "" {
-		logger.Error("Username not found in context")
+	// accountNo 来自 JWT 中间件，表示系统内部账号编号，而不是用户昵称。
+	accountNo := c.GetString("accountNo")
+	if accountNo == "" {
+		logger.Error("AccountNo not found in context")
 		JSON(c, nil, code.CodeInvalidToken)
 		return
 	}
 
-	fileBO, err := file.UploadRagFile(username, uploadedFile)
+	fileBO, err := file.UploadRagFile(accountNo, uploadedFile)
 	if err != nil {
 		logger.Error("UploadFile", "err", err)
 		JSON(c, nil, code.CodeServerBusy)

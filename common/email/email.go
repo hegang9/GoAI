@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	CodeMsg     = "GopherAI验证码如下(验证码仅限于2分钟有效): "
-	UserNameMsg = "GopherAI的账号如下，请保留好，后续可以用账号/邮箱登录 "
+	CodeMsg      = "GopherAI验证码如下(验证码仅限于2分钟有效): "
+	AccountNoMsg = "GopherAI的内部账号编号如下，仅用于账号识别和问题排查，请妥善保管 "
 )
 
 func SendCaptcha(email, code, msg string) error {

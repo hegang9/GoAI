@@ -14,29 +14,29 @@ GopherAI 是一个基于 Gin 的 AI 对话服务。除登录、注册、发送�
 
 ```text
 注册/登录 (公开接口)
-   └─ service/user 校验通过 → auth.GenerateToken(id, username) → 返回 token 给客户端
+   └─ service/user 使用 email + password 校验通过 → auth.GenerateToken(id, account_no) → 返回 token 给客户端
 
 访问受保护接口 (/api/v1/ai、/image、/file)
    └─ jwt.Auth() 中间件
         ├─ 从 Authorization: Bearer <token> 或 ?token= 提取 token
         ├─ auth.ParseToken(token) 校验签名与有效期
-        ├─ 成功 → c.Set("userName", userName) → c.Next() 进入业务 handler
+        ├─ 成功 → c.Set("accountNo", accountNo) → c.Next() 进入业务 handler
         └─ 失败 → 返回 CodeInvalidToken(2006) + 401 → c.Abort()
 
 业务 handler
-   └─ c.GetString("userName") 获取当前用户身份，执行业务逻辑
+   └─ c.GetString("accountNo") 获取当前用户身份，执行业务逻辑
 ```
 
 ## 关键设计
 
 ### 1. Token 生成（`auth/jwt.go`）
 
-`GenerateToken` 使用 HMAC-SHA256（`SigningMethodHS256`）对称签名生成 token。自定义 `Claims` 在标准声明之外携带用户 `ID` 和 `Username`：
+`GenerateToken` 使用 HMAC-SHA256（`SigningMethodHS256`）对称签名生成 token。自定义 `Claims` 在标准声明之外携带用户 `ID` 和 `AccountNo`：
 
 ```go
 type Claims struct {
     ID       int64  `json:"id"`
-    Username string `json:"username"`
+    AccountNo string `json:"account_no"`
     jwt.RegisteredClaims
 }
 ```
@@ -52,7 +52,7 @@ type Claims struct {
 
 ### 2. Token 解析（`auth/jwt.go`）
 
-`ParseToken` 使用同一把密钥验签，校验 `t.Valid`（包含签名正确性与过期校验）。校验通过返回 `Username` 和 `true`，任何错误（格式错误、签名不匹配、已过期）都返回 `"", false`，由调用方统一按未授权处理。
+`ParseToken` 使用同一把密钥验签，校验 `t.Valid`（包含签名正确性与过期校验）。校验通过返回 `AccountNo` 和 `true`，任何错误（格式错误、签名不匹配、已过期）都返回 `"", false`，由调用方统一按未授权处理。
 
 ### 3. 鉴权中间件（`middleware/jwt/jwt.go`）
 
@@ -61,7 +61,7 @@ type Claims struct {
 1. **提取 token**：优先从标准请求头 `Authorization: Bearer <token>` 读取；兼容从 URL 参数 `?token=` 读取（便于 SSE 流式接口等无法自定义请求头的场景）。
 2. **缺失校验**：token 为空时直接返回 `CodeInvalidToken` 并 `c.Abort()`，阻止进入业务逻辑。
 3. **解析校验**：调用 `auth.ParseToken`，失败同样返回 `CodeInvalidToken` 并中止。
-4. **注入身份**：成功后通过 `c.Set("userName", userName)` 把用户名写入 Gin 上下文，再 `c.Next()` 放行。
+4. **注入身份**：成功后通过 `c.Set("accountNo", accountNo)` 把账号编号写入 Gin 上下文，再 `c.Next()` 放行。
 
 中间件还使用 `common/logger` 打印 token 前缀用于调试（避免完整泄露）。
 
@@ -89,7 +89,7 @@ auth.Use(jwt.Auth())
 
 ### 5. 业务层读取身份
 
-进入业务 handler 后，统一通过 `c.GetString("userName")` 获取当前用户。例如 `controller/session.go`、`controller/file.go` 都依赖中间件注入的 `userName` 进行后续业务（会话、文件等）。`controller/file.go` 还额外判断 `userName` 为空时返回 `CodeInvalidToken`，作为防御性兜底。
+进入业务 handler 后，统一通过 `c.GetString("accountNo")` 获取当前用户。例如 `controller/session.go`、`controller/file.go` 都依赖中间件注入的 `accountNo` 进行后续业务（会话、文件等）。`controller/file.go` 还额外判断 `accountNo` 为空时返回 `CodeInvalidToken`，作为防御性兜底。
 
 ## 配置说明
 

@@ -28,9 +28,9 @@
 | --- | --- | --- |
 | `1000` | 成功 | `200` |
 | `2001` | 请求参数错误 | `400` |
-| `2002` | 用户名已存在 | `409` |
+| `2002` | 账号编号或邮箱已存在 | `409` |
 | `2003` | 用户不存在 | `404` |
-| `2004` | 用户名或密码错误 | `400` |
+| `2004` | 邮箱或密码错误 | `400` |
 | `2006` | 无效的 Token | `401` |
 | `2008` | 验证码错误 | `400` |
 | `2009` | 记录不存在 | `404` |
@@ -120,7 +120,7 @@ Content-Type: application/json
 }
 ```
 
-说明：注册成功后系统会生成随机用户名，并向邮箱发送用户名信息。
+说明：注册成功后系统会生成随机账号编号，并向邮箱发送账号编号信息；用户登录使用邮箱和密码，账号编号仅用于系统内部身份和资源隔离。
 
 ### 登录
 
@@ -133,7 +133,7 @@ Content-Type: application/json
 
 ```json
 {
-  "username": "generated-username",
+  "email": "user@example.com",
   "password": "password"
 }
 ```
@@ -377,11 +377,11 @@ Content-Type: multipart/form-data
 
 ```json
 {
-  "file_path": "uploads/username/file-id.md"
+  "file_path": "uploads/account_no/file-id.md"
 }
 ```
 
-说明：上传后会写入本地 `uploads/<username>/`，并基于 Redis Stack 创建向量索引。当前实现会先清理该用户旧文件和旧索引。
+说明：上传后会写入本地 `uploads/<account_no>/`，并基于 Redis Stack 创建向量索引。当前实现会先清理该用户旧文件和旧索引。
 
 ## 图片接口
 
@@ -416,7 +416,7 @@ Content-Type: multipart/form-data
 ```bash
 TOKEN=$(curl -s http://localhost:9090/api/v1/user/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"generated-username","password":"password"}' \
+  -d '{"email":"user@example.com","password":"password"}' \
   | jq -r '.token')
 ```
 

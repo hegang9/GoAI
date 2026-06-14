@@ -12,10 +12,11 @@
         :rules="loginRules"
         label-width="80px"
       >
-        <el-form-item label="用户名" prop="username">
+        <el-form-item label="邮箱" prop="email">
           <el-input
-            v-model="loginForm.username"
-            placeholder="请输入用户名"
+            v-model="loginForm.email"
+            placeholder="请输入邮箱"
+            type="email"
           />
         </el-form-item>
         <el-form-item label="密码" prop="password">
@@ -62,14 +63,16 @@ export default {
     const router = useRouter()
     const loginFormRef = ref()
     const loading = ref(false)
+    // loginForm 保存登录表单数据，email 是用户登录凭证。
     const loginForm = ref({
-      username: '',
+      email: '',
       password: ''
     })
 
     const loginRules = {
-      username: [
-        { required: true, message: '请输入用户名', trigger: 'blur' }
+      email: [
+        { required: true, message: '请输入邮箱', trigger: 'blur' },
+        { type: 'email', message: '请输入正确的邮箱格式', trigger: 'blur' }
       ],
       password: [
         { required: true, message: '请输入密码', trigger: 'blur' },
@@ -82,7 +85,7 @@ export default {
         await loginFormRef.value.validate()
         loading.value = true
         const response = await api.post('/user/login', {
-          username: loginForm.value.username,
+          email: loginForm.value.email,
           password: loginForm.value.password
         })
         if (response.data.status_code === 1000) {

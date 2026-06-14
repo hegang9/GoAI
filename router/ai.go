@@ -10,7 +10,7 @@ func RegisterAIRouter(r *gin.RouterGroup) {
 
 	// 聊天相关接口
 	{
-		r.GET("/chat/sessions", controller.GetUserSessionsByUserName)
+		r.GET("/chat/sessions", controller.GetUserSessionsByAccountNo)
 		r.POST("/chat/send-new-session", Handler(controller.CreateSessionAndSendMessage))
 		r.POST("/chat/send", Handler(controller.ChatSend))
 		r.POST("/chat/history", Handler(controller.ChatHistory))

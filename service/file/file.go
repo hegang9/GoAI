@@ -14,16 +14,17 @@ import (
 	"path/filepath"
 )
 
-func UploadRagFile(username string, file *multipart.FileHeader) (bo.FileBO, error) {
+// UploadRagFile 将用户上传的 RAG 文档保存到账号编号隔离目录。
+func UploadRagFile(accountNo string, file *multipart.FileHeader) (bo.FileBO, error) {
 	if err := fileutil.ValidateFile(file); err != nil {
 		logger.Warn("File validation failed", "err", err)
 		return bo.FileBO{}, err
 	}
 
-	// 复用 rag 包集中定义的用户文档目录约定，确保上传与检索路径一致。
-	userDir := rag.UserDocDir(username)
+	// 复用 rag 包集中定义的账号编号文档目录约定，确保上传与检索路径一致。
+	userDir := rag.UserDocDir(accountNo)
 	if err := os.MkdirAll(userDir, 0755); err != nil {
-		logger.Error("Failed to create user directory", "dir", userDir, "err", err)
+		logger.Error("Failed to create account directory", "dir", userDir, "err", err)
 		return bo.FileBO{}, err
 	}
 
@@ -40,7 +41,7 @@ func UploadRagFile(username string, file *multipart.FileHeader) (bo.FileBO, erro
 	}
 
 	if err := fileutil.RemoveAllFilesInDir(userDir); err != nil {
-		logger.Error("Failed to clean user directory", "dir", userDir, "err", err)
+		logger.Error("Failed to clean account directory", "dir", userDir, "err", err)
 		return bo.FileBO{}, err
 	}
 

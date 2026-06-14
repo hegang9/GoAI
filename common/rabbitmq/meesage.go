@@ -21,7 +21,7 @@ import (
 type MessageMQParam struct {
 	SessionID string `json:"session_id"`
 	Content   string `json:"content"`
-	UserName  string `json:"user_name"`
+	AccountNo string `json:"account_no"`
 	IsUser    bool   `json:"is_user"`
 }
 
@@ -30,11 +30,11 @@ type MessageMQParam struct {
 // 发送到 RabbitMQ 队列。
 //
 // error 被忽略（json.Marshal 对纯基础类型结构体不会失败）。
-func GenerateMessageMQParam(sessionID string, content string, userName string, IsUser bool) []byte {
+func GenerateMessageMQParam(sessionID string, content string, accountNo string, IsUser bool) []byte {
 	param := MessageMQParam{
 		SessionID: sessionID,
 		Content:   content,
-		UserName:  userName,
+		AccountNo: accountNo,
 		IsUser:    IsUser,
 	}
 	data, _ := json.Marshal(param)
@@ -61,7 +61,7 @@ func MQMessage(msg *amqp.Delivery) error {
 	newMsg := &model.Message{
 		SessionID: param.SessionID,
 		Content:   param.Content,
-		UserName:  param.UserName,
+		AccountNo: param.AccountNo,
 		IsUser:    param.IsUser,
 	}
 	// 异步插入数据库：此处在消费者 goroutine 中执行，

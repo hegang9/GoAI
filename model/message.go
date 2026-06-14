@@ -15,8 +15,8 @@ type Message struct {
 	// 建立索引以加速按会话查询消息的效率。
 	SessionID string `gorm:"index;not null;type:varchar(36);column:session_id" json:"session_id"`
 
-	// UserName 发送消息的用户名，用于标识消息归属。
-	UserName string `gorm:"type:varchar(20);column:user_name" json:"username"`
+	// AccountNo 发送消息的内部账号编号，用于标识消息归属，不等同于用户昵称 Name。
+	AccountNo string `gorm:"type:varchar(50);column:account_no" json:"account_no"`
 
 	// Content 消息正文，使用 text 类型支持长文本（如 AI 生成的代码或长回复）。
 	Content string `gorm:"type:text;column:content" json:"content"`

@@ -39,18 +39,18 @@ func (f *AIModelFactory) registerCreators() {
 		return providerpkg.NewOpenAIModel(ctx)
 	}
 	f.creators["2"] = func(ctx context.Context, config map[string]interface{}) (providerpkg.AIModel, error) {
-		username, ok := config["username"].(string)
+		accountNo, ok := config["account_no"].(string)
 		if !ok {
-			return nil, fmt.Errorf("RAG model requires username")
+			return nil, fmt.Errorf("RAG model requires account_no")
 		}
-		return providerpkg.NewAliRAGModel(ctx, username)
+		return providerpkg.NewAliRAGModel(ctx, accountNo)
 	}
 	f.creators["3"] = func(ctx context.Context, config map[string]interface{}) (providerpkg.AIModel, error) {
-		username, ok := config["username"].(string)
+		accountNo, ok := config["account_no"].(string)
 		if !ok {
-			return nil, fmt.Errorf("MCP model requires username")
+			return nil, fmt.Errorf("MCP model requires account_no")
 		}
-		return providerpkg.NewMCPModel(ctx, username)
+		return providerpkg.NewMCPModel(ctx, accountNo)
 	}
 	f.creators["4"] = func(ctx context.Context, config map[string]interface{}) (providerpkg.AIModel, error) {
 		baseURL, _ := config["baseURL"].(string)

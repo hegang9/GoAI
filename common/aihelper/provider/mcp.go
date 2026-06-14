@@ -24,8 +24,8 @@ type MCPModel struct {
 	llm einomodel.ToolCallingChatModel
 	// mcpClient 缓存 MCP 客户端，避免重复初始化。
 	mcpClient *client.Client
-	// username 标识当前用户，用于后续扩展个性化上下文。
-	username string
+	// accountNo 标识当前用户，用于后续扩展个性化上下文。
+	accountNo string
 	// mcpBaseURL 表示 MCP 服务地址。
 	mcpBaseURL string
 }
@@ -38,7 +38,7 @@ type AIToolCall struct {
 }
 
 // NewMCPModel 创建 MCP 模型实例。
-func NewMCPModel(ctx context.Context, username string) (*MCPModel, error) {
+func NewMCPModel(ctx context.Context, accountNo string) (*MCPModel, error) {
 	key := os.Getenv("OPENAI_API_KEY")
 	conf := config.GetConfig()
 	modelName := conf.RagModelConfig.RagChatModelName
@@ -50,17 +50,17 @@ func NewMCPModel(ctx context.Context, username string) (*MCPModel, error) {
 		APIKey:  key,
 	})
 	if err != nil {
-		logger.Error("NewMCPModel failed", "user", username, "err", err)
+		logger.Error("NewMCPModel failed", "accountNo", accountNo, "err", err)
 		return nil, fmt.Errorf("create mcp model failed: %v", err)
 	}
 
 	// mcpBaseURL 当前仍沿用原有本地默认地址，后续可继续收敛到配置层。
 	mcpBaseURL := "http://localhost:8081/mcp"
-	logger.Info("NewMCPModel success", "user", username, "baseURL", mcpBaseURL)
+	logger.Info("NewMCPModel success", "accountNo", accountNo, "baseURL", mcpBaseURL)
 	return &MCPModel{
 		llm:        llm,
 		mcpBaseURL: mcpBaseURL,
-		username:   username,
+		accountNo:  accountNo,
 	}, nil
 }
 
@@ -75,31 +75,31 @@ func (m *MCPModel) GenerateResponse(ctx context.Context, messages []*schema.Mess
 	firstMessages := m.buildPromptMessages(messages, m.buildFirstPrompt(query))
 	firstResp, err := m.llm.Generate(ctx, firstMessages)
 	if err != nil {
-		logger.Error("MCPModel GenerateResponse first generate failed", "user", m.username, "err", err)
+		logger.Error("MCPModel GenerateResponse first generate failed", "accountNo", m.accountNo, "err", err)
 		return nil, fmt.Errorf("mcp first generate failed: %v", err)
 	}
 	logger.Debug("MCP first response", "content", firstResp.Content)
 
 	toolCall, err := m.parseAIResponse(firstResp.Content)
 	if err != nil {
-		logger.Warn("MCPModel GenerateResponse parse failed", "user", m.username, "err", err)
+		logger.Warn("MCPModel GenerateResponse parse failed", "accountNo", m.accountNo, "err", err)
 		return firstResp, nil
 	}
 	if !toolCall.IsToolCall {
-		logger.Debug("MCPModel GenerateResponse no tool call", "user", m.username)
+		logger.Debug("MCPModel GenerateResponse no tool call", "accountNo", m.accountNo)
 		return firstResp, nil
 	}
 
 	toolResult, err := m.executeToolCall(ctx, toolCall)
 	if err != nil {
-		logger.Error("MCPModel GenerateResponse executeToolCall failed", "user", m.username, "err", err)
+		logger.Error("MCPModel GenerateResponse executeToolCall failed", "accountNo", m.accountNo, "err", err)
 		return firstResp, nil
 	}
 
 	secondMessages := m.buildPromptMessages(messages, m.buildSecondPrompt(query, toolCall.ToolName, toolCall.Args, toolResult))
 	finalResp, err := m.llm.Generate(ctx, secondMessages)
 	if err != nil {
-		logger.Error("MCPModel GenerateResponse second generate failed", "user", m.username, "err", err)
+		logger.Error("MCPModel GenerateResponse second generate failed", "accountNo", m.accountNo, "err", err)
 		return nil, fmt.Errorf("mcp second generate failed: %v", err)
 	}
 	logger.Debug("MCP final response", "content", finalResp.Content)
@@ -117,13 +117,13 @@ func (m *MCPModel) StreamResponse(ctx context.Context, messages []*schema.Messag
 	firstMessages := m.buildPromptMessages(messages, m.buildFirstPrompt(query))
 	firstResp, err := m.llm.Generate(ctx, firstMessages)
 	if err != nil {
-		logger.Error("MCPModel StreamResponse first generate failed", "user", m.username, "err", err)
+		logger.Error("MCPModel StreamResponse first generate failed", "accountNo", m.accountNo, "err", err)
 		return "", fmt.Errorf("mcp first generate failed: %v", err)
 	}
 
 	toolCall, err := m.parseAIResponse(firstResp.Content)
 	if err != nil {
-		logger.Warn("MCPModel StreamResponse parse failed", "user", m.username, "err", err)
+		logger.Warn("MCPModel StreamResponse parse failed", "accountNo", m.accountNo, "err", err)
 		return firstResp.Content, nil
 	}
 	if !toolCall.IsToolCall {
@@ -132,14 +132,14 @@ func (m *MCPModel) StreamResponse(ctx context.Context, messages []*schema.Messag
 
 	toolResult, err := m.executeToolCall(ctx, toolCall)
 	if err != nil {
-		logger.Error("MCPModel StreamResponse executeToolCall failed", "user", m.username, "err", err)
+		logger.Error("MCPModel StreamResponse executeToolCall failed", "accountNo", m.accountNo, "err", err)
 		return firstResp.Content, nil
 	}
 
 	secondMessages := m.buildPromptMessages(messages, m.buildSecondPrompt(query, toolCall.ToolName, toolCall.Args, toolResult))
 	stream, err := m.llm.Stream(ctx, secondMessages)
 	if err != nil {
-		logger.Error("MCPModel StreamResponse second stream failed", "user", m.username, "err", err)
+		logger.Error("MCPModel StreamResponse second stream failed", "accountNo", m.accountNo, "err", err)
 		return "", fmt.Errorf("mcp second stream failed: %v", err)
 	}
 	defer stream.Close()
@@ -151,7 +151,7 @@ func (m *MCPModel) StreamResponse(ctx context.Context, messages []*schema.Messag
 			break
 		}
 		if err != nil {
-			logger.Error("MCPModel StreamResponse recv failed", "user", m.username, "err", err)
+			logger.Error("MCPModel StreamResponse recv failed", "accountNo", m.accountNo, "err", err)
 			return "", fmt.Errorf("mcp second stream recv failed: %v", err)
 		}
 		if len(msg.Content) > 0 {

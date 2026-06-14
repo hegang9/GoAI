@@ -10,16 +10,16 @@ import (
 // Claims 定义 JWT payload，包含业务字段和标准注册声明。
 type Claims struct {
 	ID                   int64  `json:"id"`
-	Username             string `json:"username"`
+	AccountNo            string `json:"account_no"`
 	jwt.RegisteredClaims        // JWT 标准字段
 }
 
-// GenerateToken 根据Claims生成一个携带用户信息的 HS256 JWT。
-func GenerateToken(id int64, username string) (string, error) {
+// GenerateToken 根据 Claims 生成一个携带账号编号的 HS256 JWT。
+func GenerateToken(id int64, accountNo string) (string, error) {
 	now := time.Now()
 	claims := Claims{
-		ID:       id,
-		Username: username,
+		ID:        id,
+		AccountNo: accountNo,
 		RegisteredClaims: jwt.RegisteredClaims{
 			// 令牌过期时间，超过后解析会失败。
 			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.GetConfig().ExpireDuration) * time.Hour)),
@@ -35,7 +35,7 @@ func GenerateToken(id int64, username string) (string, error) {
 	return token.SignedString([]byte(config.GetConfig().Key))
 }
 
-// ParseToken 校验 token 并返回其中保存的用户名。
+// ParseToken 校验 token 并返回其中保存的账号编号。
 func ParseToken(token string) (string, bool) {
 	claims := new(Claims)
 	t, err := jwt.ParseWithClaims(token, claims, func(t *jwt.Token) (interface{}, error) {
@@ -44,5 +44,5 @@ func ParseToken(token string) (string, bool) {
 	if err != nil || t == nil || !t.Valid {
 		return "", false
 	}
-	return claims.Username, true
+	return claims.AccountNo, true
 }

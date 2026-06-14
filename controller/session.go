@@ -9,21 +9,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func GetUserSessionsByUserName(c *gin.Context) {
-	userName := c.GetString("userName")
+func GetUserSessionsByAccountNo(c *gin.Context) {
+	accountNo := c.GetString("accountNo")
 
-	sessions, errCode := session.GetUserSessionsByUserName(userName)
+	sessions, errCode := session.GetUserSessionsByAccountNo(accountNo)
 	JSON(c, dto.GetUserSessionsResponse{Sessions: converter.SessionInfoBOsToDTO(sessions)}, errCode)
 }
 
 func CreateSessionAndSendMessage(c *gin.Context, req dto.CreateSessionRequest) {
-	userName := c.GetString("userName")
-	result, errCode := session.CreateSessionAndSendMessage(userName, req.UserQuestion, req.ModelType)
+	accountNo := c.GetString("accountNo")
+	result, errCode := session.CreateSessionAndSendMessage(accountNo, req.UserQuestion, req.ModelType)
 	JSON(c, converter.AIResponseBOToCreateSessionResponse(result), errCode)
 }
 
 func CreateStreamSessionAndSendMessage(c *gin.Context, req dto.CreateSessionRequest) {
-	userName := c.GetString("userName")
+	accountNo := c.GetString("accountNo")
 
 	// 由 SSE 适配器统一接管响应头与流式传输细节。
 	sse, ok := NewSSEWriter(c)
@@ -32,7 +32,7 @@ func CreateStreamSessionAndSendMessage(c *gin.Context, req dto.CreateSessionRequ
 		return
 	}
 
-	sessionID, errCode := session.CreateStreamSessionOnly(userName, req.UserQuestion)
+	sessionID, errCode := session.CreateStreamSessionOnly(accountNo, req.UserQuestion)
 	if errCode != code.CodeSuccess {
 		c.SSEvent("error", gin.H{"message": "Failed to create session"})
 		return
@@ -43,7 +43,7 @@ func CreateStreamSessionAndSendMessage(c *gin.Context, req dto.CreateSessionRequ
 		return
 	}
 
-	errCode = session.StreamMessageToExistingSession(userName, sessionID, req.UserQuestion, req.ModelType, sse.Chunk())
+	errCode = session.StreamMessageToExistingSession(accountNo, sessionID, req.UserQuestion, req.ModelType, sse.Chunk())
 	if errCode != code.CodeSuccess {
 		c.SSEvent("error", gin.H{"message": "Failed to send message"})
 		return
@@ -53,13 +53,13 @@ func CreateStreamSessionAndSendMessage(c *gin.Context, req dto.CreateSessionRequ
 }
 
 func ChatSend(c *gin.Context, req dto.ChatSendRequest) {
-	userName := c.GetString("userName")
-	result, errCode := session.ChatSend(userName, req.SessionID, req.UserQuestion, req.ModelType)
+	accountNo := c.GetString("accountNo")
+	result, errCode := session.ChatSend(accountNo, req.SessionID, req.UserQuestion, req.ModelType)
 	JSON(c, converter.AIResponseBOToChatSendResponse(result), errCode)
 }
 
 func ChatStreamSend(c *gin.Context, req dto.ChatSendRequest) {
-	userName := c.GetString("userName")
+	accountNo := c.GetString("accountNo")
 
 	// 由 SSE 适配器统一接管响应头与流式传输细节。
 	sse, ok := NewSSEWriter(c)
@@ -68,7 +68,7 @@ func ChatStreamSend(c *gin.Context, req dto.ChatSendRequest) {
 		return
 	}
 
-	errCode := session.ChatStreamSend(userName, req.SessionID, req.UserQuestion, req.ModelType, sse.Chunk())
+	errCode := session.ChatStreamSend(accountNo, req.SessionID, req.UserQuestion, req.ModelType, sse.Chunk())
 	if errCode != code.CodeSuccess {
 		c.SSEvent("error", gin.H{"message": "Failed to send message"})
 		return
@@ -78,7 +78,7 @@ func ChatStreamSend(c *gin.Context, req dto.ChatSendRequest) {
 }
 
 func ChatHistory(c *gin.Context, req dto.ChatHistoryRequest) {
-	userName := c.GetString("userName")
-	history, errCode := session.GetChatHistory(userName, req.SessionID)
+	accountNo := c.GetString("accountNo")
+	history, errCode := session.GetChatHistory(accountNo, req.SessionID)
 	JSON(c, dto.ChatHistoryResponse{History: converter.MessageBOsToHistoryDTO(history)}, errCode)
 }
