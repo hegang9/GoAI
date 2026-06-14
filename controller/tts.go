@@ -1,42 +1,26 @@
 package controller
 
 import (
-	"GopherAI/bo"
 	"GopherAI/common/code"
-	"GopherAI/common/logger"
-	"GopherAI/common/tts"
 	"GopherAI/converter"
 	"GopherAI/dto"
+	ttssvc "GopherAI/service/tts"
 
 	"github.com/gin-gonic/gin"
 )
 
-type TTSServices struct {
-	ttsService *tts.TTSService
-}
-
-func NewTTSServices() *TTSServices {
-	return &TTSServices{
-		ttsService: tts.NewTTSService(),
-	}
-}
-
+// CreateTTSTask 接收文本转语音请求，校验参数后委派给 service/tts 处理。
 func CreateTTSTask(c *gin.Context, req dto.TTSRequest) {
 	if req.Text == "" {
 		JSON(c, nil, code.CodeInvalidParams)
 		return
 	}
 
-	tts := NewTTSServices()
-	taskID, err := tts.ttsService.CreateTTS(c, req.Text)
-	if err != nil {
-		JSON(c, nil, code.TTSFail)
-		return
-	}
-
-	JSON(c, converter.TTSResultBOToResponse(bo.TTSResultBO{TaskID: taskID}), code.CodeSuccess)
+	result, errCode := ttssvc.CreateTTSTask(c, req.Text)
+	JSON(c, converter.TTSResultBOToResponse(result), errCode)
 }
 
+// QueryTTSTask 查询文本转语音任务状态，校验参数后委派给 service/tts 处理。
 func QueryTTSTask(c *gin.Context) {
 	taskID := c.Query("task_id")
 	if taskID == "" {
@@ -44,23 +28,6 @@ func QueryTTSTask(c *gin.Context) {
 		return
 	}
 
-	tts := NewTTSServices()
-	TTSQueryResponse, err := tts.ttsService.QueryTTSFull(c, taskID)
-	if err != nil {
-		logger.Error("语音合成失败", "err", err)
-		JSON(c, nil, code.TTSFail)
-		return
-	}
-
-	if len(TTSQueryResponse.TasksInfo) == 0 {
-		JSON(c, nil, code.TTSFail)
-		return
-	}
-
-	result := bo.TTSResultBO{TaskID: TTSQueryResponse.TasksInfo[0].TaskID, TaskStatus: TTSQueryResponse.TasksInfo[0].TaskStatus}
-	if TTSQueryResponse.TasksInfo[0].TaskResult != nil {
-		result.SpeechURL = TTSQueryResponse.TasksInfo[0].TaskResult.SpeechURL
-	}
-
-	JSON(c, converter.TTSResultBOToQueryResponse(result), code.CodeSuccess)
+	result, errCode := ttssvc.QueryTTSTask(c, taskID)
+	JSON(c, converter.TTSResultBOToQueryResponse(result), errCode)
 }

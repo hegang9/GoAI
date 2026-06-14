@@ -5,7 +5,6 @@ import (
 	"GopherAI/converter"
 	"GopherAI/dto"
 	"GopherAI/service/session"
-	"fmt"
 
 	"github.com/gin-gonic/gin"
 )
@@ -26,11 +25,12 @@ func CreateSessionAndSendMessage(c *gin.Context, req dto.CreateSessionRequest) {
 func CreateStreamSessionAndSendMessage(c *gin.Context, req dto.CreateSessionRequest) {
 	userName := c.GetString("userName")
 
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("Access-Control-Allow-Origin", "*")
-	c.Header("X-Accel-Buffering", "no")
+	// 由 SSE 适配器统一接管响应头与流式传输细节。
+	sse, ok := NewSSEWriter(c)
+	if !ok {
+		JSON(c, nil, code.CodeServerBusy)
+		return
+	}
 
 	sessionID, errCode := session.CreateStreamSessionOnly(userName, req.UserQuestion)
 	if errCode != code.CodeSuccess {
@@ -38,14 +38,18 @@ func CreateStreamSessionAndSendMessage(c *gin.Context, req dto.CreateSessionRequ
 		return
 	}
 
-	fmt.Fprintf(c.Writer, "data: {\"sessionId\": \"%s\"}\n\n", sessionID)
-	c.Writer.Flush()
+	// 先告知客户端本次流对应的会话 ID。
+	if err := sse.SendSessionID(sessionID); err != nil {
+		return
+	}
 
-	errCode = session.StreamMessageToExistingSession(userName, sessionID, req.UserQuestion, req.ModelType, c.Writer)
+	errCode = session.StreamMessageToExistingSession(userName, sessionID, req.UserQuestion, req.ModelType, sse.Chunk())
 	if errCode != code.CodeSuccess {
 		c.SSEvent("error", gin.H{"message": "Failed to send message"})
 		return
 	}
+
+	_ = sse.SendDone()
 }
 
 func ChatSend(c *gin.Context, req dto.ChatSendRequest) {
@@ -57,17 +61,20 @@ func ChatSend(c *gin.Context, req dto.ChatSendRequest) {
 func ChatStreamSend(c *gin.Context, req dto.ChatSendRequest) {
 	userName := c.GetString("userName")
 
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("Access-Control-Allow-Origin", "*")
-	c.Header("X-Accel-Buffering", "no")
+	// 由 SSE 适配器统一接管响应头与流式传输细节。
+	sse, ok := NewSSEWriter(c)
+	if !ok {
+		JSON(c, nil, code.CodeServerBusy)
+		return
+	}
 
-	errCode := session.ChatStreamSend(userName, req.SessionID, req.UserQuestion, req.ModelType, c.Writer)
+	errCode := session.ChatStreamSend(userName, req.SessionID, req.UserQuestion, req.ModelType, sse.Chunk())
 	if errCode != code.CodeSuccess {
 		c.SSEvent("error", gin.H{"message": "Failed to send message"})
 		return
 	}
+
+	_ = sse.SendDone()
 }
 
 func ChatHistory(c *gin.Context, req dto.ChatHistoryRequest) {

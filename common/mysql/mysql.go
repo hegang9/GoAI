@@ -96,6 +96,19 @@ func InitMysql() error {
 	return migration()
 }
 
+// CloseMysql 关闭底层数据库连接池，用于程序优雅退出时释放资源。
+// 未初始化时直接返回，避免 nil 调用 panic。
+func CloseMysql() error {
+	if DB == nil {
+		return nil
+	}
+	sqlDB, err := DB.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}
+
 // migration 执行 GORM AutoMigrate，根据 model 中的 struct 定义自动同步数据库表结构。
 //
 // AutoMigrate 的行为：
@@ -113,4 +126,3 @@ func migration() error {
 		new(model.Message),
 	)
 }
-

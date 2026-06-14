@@ -1,7 +1,6 @@
 package rabbitmq
 
 var (
-
 	RMQMessage *RabbitMQ
 )
 
@@ -15,7 +14,11 @@ func InitRabbitMQ() {
 
 }
 
-// DestroyRabbitMQ 销毁RabbitMQ
+// DestroyRabbitMQ 销毁RabbitMQ，关闭 Channel 与底层 Connection。
+// 关闭 Connection 会使消费者 goroutine 的接收 channel 关闭并退出循环。
+// 做 nil 保护，避免未初始化或重复关闭时 panic。
 func DestroyRabbitMQ() {
-	RMQMessage.Destroy()
+	if RMQMessage != nil {
+		RMQMessage.Destroy()
+	}
 }

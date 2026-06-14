@@ -97,7 +97,14 @@ func (o *AliRAGModel) buildRAGMessages(ctx context.Context, messages []*schema.M
 		return nil, fmt.Errorf("no messages provided")
 	}
 
-	ragQuery, err := rag.NewRAGQuery(ctx, o.username)
+	// 先解析当前用户已上传的文档名（文件系统约定由 rag.store 承载），再构建检索器。
+	filename, err := rag.ResolveUserDocFilename(o.username)
+	if err != nil {
+		logger.Warn("AliRAGModel buildRAGMessages resolve file failed", "user", o.username, "err", err)
+		return messages, nil
+	}
+
+	ragQuery, err := rag.NewRAGQuery(ctx, filename)
 	if err != nil {
 		logger.Warn("AliRAGModel buildRAGMessages create query failed", "user", o.username, "err", err)
 		return messages, nil

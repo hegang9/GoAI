@@ -9,7 +9,6 @@ import (
 	"GopherAI/dao"
 	"GopherAI/model"
 	"context"
-	"net/http"
 
 	"github.com/google/uuid"
 )
@@ -81,13 +80,10 @@ func CreateStreamSessionOnly(userName, userQuestion string) (string, code.Code) 
 	return createdSession.ID, code.CodeSuccess
 }
 
-func StreamMessageToExistingSession(userName, sessionID, userQuestion, modelType string, writer http.ResponseWriter) code.Code {
-	flusher, ok := writer.(http.Flusher)
-	if !ok {
-		logger.Error("StreamMessageToExistingSession: streaming unsupported")
-		return code.CodeServerBusy
-	}
-
+// StreamMessageToExistingSession 向已存在的会话发送消息并以流式方式产出 AI 回复。
+// onChunk 为内容分片回调，由调用方（controller / streaming adapter）决定如何编码与传输；
+// service 层只负责驱动 AI 流式生成，不再依赖任何 HTTP 传输细节。
+func StreamMessageToExistingSession(userName, sessionID, userQuestion, modelType string, onChunk func(chunk string)) code.Code {
 	manager := aihelper.GetGlobalManager()
 	helper, err := manager.GetOrCreateAIHelper(userName, sessionID, modelType, buildAIHelperConfig(userName))
 	if err != nil {
@@ -95,28 +91,10 @@ func StreamMessageToExistingSession(userName, sessionID, userQuestion, modelType
 		return code.AIModelFail
 	}
 
-	cb := func(msg string) {
-		logger.Debug("SSE sending chunk", "content", msg, "len", len(msg))
-		_, err := writer.Write([]byte("data: " + msg + "\n\n"))
-		if err != nil {
-			logger.Error("SSE write error", "err", err)
-			return
-		}
-		flusher.Flush()
-	}
-
-	_, err_ := helper.StreamResponse(userName, ctx, cb, userQuestion)
-	if err_ != nil {
-		logger.Error("StreamMessageToExistingSession StreamResponse", "err", err_)
+	if _, err := helper.StreamResponse(userName, ctx, onChunk, userQuestion); err != nil {
+		logger.Error("StreamMessageToExistingSession StreamResponse", "err", err)
 		return code.AIModelFail
 	}
-
-	_, err = writer.Write([]byte("data: [DONE]\n\n"))
-	if err != nil {
-		logger.Error("StreamMessageToExistingSession write DONE", "err", err)
-		return code.AIModelFail
-	}
-	flusher.Flush()
 
 	return code.CodeSuccess
 }
@@ -148,10 +126,11 @@ func GetChatHistory(userName, sessionID string) ([]bo.MessageBO, code.Code) {
 	messages := helper.GetMessages()
 	history := make([]bo.MessageBO, 0, len(messages))
 
-	for i, msg := range messages {
-		isUser := i%2 == 0
+	// 直接读取持久化的 IsUser 字段，而非用下标奇偶推断角色。
+	// 历史消息在内存中始终携带真实来源（用户/AI），下标推断在消息缺失或乱序时会错乱。
+	for _, msg := range messages {
 		history = append(history, bo.MessageBO{
-			IsUser:  isUser,
+			IsUser:  msg.IsUser,
 			Content: msg.Content,
 		})
 	}
@@ -159,6 +138,7 @@ func GetChatHistory(userName, sessionID string) ([]bo.MessageBO, code.Code) {
 	return history, code.CodeSuccess
 }
 
-func ChatStreamSend(userName, sessionID, userQuestion, modelType string, writer http.ResponseWriter) code.Code {
-	return StreamMessageToExistingSession(userName, sessionID, userQuestion, modelType, writer)
+// ChatStreamSend 在已有会话上发起流式对话，是 StreamMessageToExistingSession 的语义化别名。
+func ChatStreamSend(userName, sessionID, userQuestion, modelType string, onChunk func(chunk string)) code.Code {
+	return StreamMessageToExistingSession(userName, sessionID, userQuestion, modelType, onChunk)
 }

@@ -128,7 +128,13 @@ go run main.go
 3. 从数据库加载历史消息到 AIHelperManager。
 4. 初始化 Redis。
 5. 初始化 RabbitMQ 并启动 `Message` 队列消费者。
-6. 监听 `[mainConfig]` 配置的地址和端口。
+6. 在独立 goroutine 中通过 `http.Server` 监听 `[mainConfig]` 配置的地址和端口。
+
+后端关闭流程（优雅关闭）：
+
+1. 主协程监听 `SIGINT`（Ctrl+C）/ `SIGTERM`（容器停止）信号。
+2. 收到信号后在 10 秒超时内调用 `http.Server.Shutdown`，停止接收新请求并等待在途请求处理完成。
+3. 依次关闭 RabbitMQ（消费者随连接关闭退出）、Redis、MySQL 连接，释放资源后退出。
 
 ## 工具包拆分说明
 
@@ -145,6 +151,8 @@ go run main.go
 - `common/aihelper/factory`：根据模型类型和配置创建 provider 与 helper
 - `common/aihelper/manager`：按用户/会话维度管理 helper 生命周期
 - `common/aihelper`：保留兼容入口，降低上层调用改动面
+- `service/tts`：TTS 业务服务层，编排 `common/tts` 并返回 `bo` 与错误码，使 controller 不再直接依赖基础设施
+- `common/rag`：RAG 已按职责拆分为多个文件——`embedding.go`（向量生成器）、`document.go`（文档加载/切块）、`indexer.go`（向量索引与生命周期）、`retriever.go`（向量检索）、`prompt.go`（提示词构造）、`store.go`（`uploads/{username}` 文件系统约定）
 
 当前相关调用已迁移到这些明确包中，例如用户认证、JWT 中间件、RAG 文件上传、AI 消息转换以及 AIHelper 内部职责拆分逻辑。
 
@@ -171,6 +179,16 @@ npm run serve
 - `controller.Handler(...)`：提供底层 JSON 绑定包装实现；`router` 包再通过同名 `Handler(...)` 薄包装暴露给路由注册使用，例如 `router/user.go`、`router/ai.go` 中的 `r.POST(..., Handler(controller.xxx))`。
 
 采用这一约定后，控制器处理函数可以直接声明为接收类型化 DTO，例如 `func(c *gin.Context, req dto.LoginRequest)`，无需在每个处理函数里重复编写 `ShouldBindJSON` 和参数错误响应逻辑。
+
+## SSE 流式约定
+
+流式对话接口（如 `POST /api/v1/ai/chat/send-stream`）的 HTTP 传输细节由 controller 层统一接管，service 层不再依赖 `net/http`：
+
+- `controller/sse.go` 提供 `SSEWriter` 适配器，负责写入 SSE 响应头、`data:` 帧编码、`flush`、会话 `sessionId` 首帧与 `[DONE]` 结束帧。
+- `service/session` 的流式函数（`StreamMessageToExistingSession`、`ChatStreamSend`）只接收内容分片回调 `func(chunk string)`，专注驱动 AI 流式生成，不感知传输协议。
+- 控制器通过 `NewSSEWriter(c)` 创建适配器，并将 `sse.Chunk()` 作为回调传入 service。
+
+这样业务逻辑与传输协议解耦，未来若新增其他流式传输方式（如 WebSocket），只需替换适配器而无需改动 service。
 
 ## 注意事项
 
