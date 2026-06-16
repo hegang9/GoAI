@@ -24,6 +24,7 @@ func RemoveAllFilesInDir(dir string) error {
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			filePath := filepath.Join(dir, entry.Name())
+			// TODO: 用户可控参数 accountNo 经 UserDocDir(accountNo) 生成目录 dir ， RemoveAllFilesInDir 函数中 filePath 由 dir 和 entry.Name() 拼接，直接传入 os.Remove 未做路径校验，恶意 accountNo 可构造 ../ 等路径逃逸，导致删除任意文件。
 			if err := os.Remove(filePath); err != nil {
 				return err
 			}
