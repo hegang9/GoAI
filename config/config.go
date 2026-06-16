@@ -14,9 +14,10 @@
 package config
 
 import (
-	"GopherAI/common/logger"
+	"GopherAI/pkg/logger"
 
-	"github.com/BurntSushi/toml" // BurntSushi/toml：Go 语言中最常用的 TOML 解析库
+	// BurntSushi/toml：Go 语言中最常用的 TOML 解析库。
+	"github.com/BurntSushi/toml"
 )
 
 // ============================================================================
@@ -25,77 +26,109 @@ import (
 
 // MainConfig 应用主配置，如监听端口、应用名称。
 type MainConfig struct {
-	Port    int    `toml:"port"`    // HTTP 服务监听端口，默认 9090
-	AppName string `toml:"appName"` // 应用名称，用于日志、邮件等场景的标识
-	Host    string `toml:"host"`    // 服务绑定的主机地址，如 "0.0.0.0" 或 "127.0.0.1"
+	// HTTP 服务监听端口，默认 9090。
+	Port int `toml:"port"`
+	// 应用名称，用于日志、邮件等场景的标识。
+	AppName string `toml:"appName"`
+	// 服务绑定的主机地址，如 "0.0.0.0" 或 "127.0.0.1"。
+	Host string `toml:"host"`
 }
 
 // EmailConfig 邮件服务配置，用于发送验证码等邮件。
 // 使用 QQ 邮箱 SMTP 服务，authcode 是 QQ 邮箱的 SMTP 授权码（非登录密码）。
 type EmailConfig struct {
-	Authcode string `toml:"authcode"` // QQ 邮箱 SMTP 授权码
-	Email    string `toml:"email"`    // 发件人邮箱地址
+	// QQ 邮箱 SMTP 授权码。
+	Authcode string `toml:"authcode"`
+	// 发件人邮箱地址。
+	Email string `toml:"email"`
 }
 
 // RedisConfig Redis 连接配置。
 // Redis 在本项目中承担多种角色：验证码缓存、RAG 向量存储（RediSearch）、通用缓存。
 type RedisConfig struct {
-	RedisPort     int    `toml:"port"`     // Redis 端口，默认 6379
-	RedisDb       int    `toml:"db"`       // 使用的数据库编号（0-15），用于数据隔离
-	RedisHost     string `toml:"host"`     // Redis 服务器地址
-	RedisPassword string `toml:"password"` // Redis 连接密码，无密码则为空字符串
+	// Redis 端口，默认 6379。
+	RedisPort int `toml:"port"`
+	// 使用的数据库编号（0-15），用于数据隔离。
+	RedisDb int `toml:"db"`
+	// Redis 服务器地址。
+	RedisHost string `toml:"host"`
+	// Redis 连接密码，无密码则为空字符串。
+	RedisPassword string `toml:"password"`
 }
 
 // MysqlConfig MySQL 数据库连接配置。
 type MysqlConfig struct {
-	MysqlPort         int    `toml:"port"`         // MySQL 端口，默认 3306
-	MysqlHost         string `toml:"host"`         // MySQL 服务器地址
-	MysqlUser         string `toml:"user"`         // 数据库用户名
-	MysqlPassword     string `toml:"password"`     // 数据库密码
-	MysqlDatabaseName string `toml:"databaseName"` // 数据库名称
-	MysqlCharset      string `toml:"charset"`      // 字符集，通常为 "utf8mb4"
+	// MySQL 端口，默认 3306。
+	MysqlPort int `toml:"port"`
+	// MySQL 服务器地址。
+	MysqlHost string `toml:"host"`
+	// 数据库用户名。
+	MysqlUser string `toml:"user"`
+	// 数据库密码。
+	MysqlPassword string `toml:"password"`
+	// 数据库名称。
+	MysqlDatabaseName string `toml:"databaseName"`
+	// 字符集，通常为 "utf8mb4"。
+	MysqlCharset string `toml:"charset"`
 }
 
 // JwtConfig JWT（JSON Web Token）鉴权配置。
 // JWT 用于用户登录后的身份维持，客户端在请求头中携带 token，
 // 服务端通过 JWT 中间件解析并验证 token 的有效性。
 type JwtConfig struct {
-	ExpireDuration int    `toml:"expire_duration"` // Token 过期时长（小时）
-	Issuer         string `toml:"issuer"`          // JWT 签发者标识，如 "GopherAI"
-	Subject        string `toml:"subject"`         // JWT 主题
-	Key            string `toml:"key"`             // JWT 签名密钥（HMAC 对称密钥）
+	// Token 过期时长（小时）。
+	ExpireDuration int `toml:"expire_duration"`
+	// JWT 签发者标识，如 "GopherAI"。
+	Issuer string `toml:"issuer"`
+	// JWT 主题。
+	Subject string `toml:"subject"`
+	// JWT 签名密钥（HMAC 对称密钥）。
+	Key string `toml:"key"`
 }
 
 // Rabbitmq RabbitMQ 消息队列连接配置。
 // RabbitMQ 在本项目中用于异步消息持久化：
 // AI 回复消息先发送到队列，再由消费者异步写入 MySQL，解耦请求处理和数据库写入。
 type Rabbitmq struct {
-	RabbitmqPort     int    `toml:"port"`     // RabbitMQ 端口，默认 5672
-	RabbitmqHost     string `toml:"host"`     // RabbitMQ 服务器地址
-	RabbitmqUsername string `toml:"username"` // RabbitMQ 登录用户名
-	RabbitmqPassword string `toml:"password"` // RabbitMQ 登录密码
-	RabbitmqVhost    string `toml:"vhost"`    // 虚拟主机（vhost），用于多租户隔离，默认 "/"
+	// RabbitMQ 端口，默认 5672。
+	RabbitmqPort int `toml:"port"`
+	// RabbitMQ 服务器地址。
+	RabbitmqHost string `toml:"host"`
+	// RabbitMQ 登录用户名。
+	RabbitmqUsername string `toml:"username"`
+	// RabbitMQ 登录密码。
+	RabbitmqPassword string `toml:"password"`
+	// 虚拟主机（vhost），用于多租户隔离，默认 "/"。
+	RabbitmqVhost string `toml:"vhost"`
 }
 
 // RagModelConfig RAG（检索增强生成）模型配置。
 // RAG 流程：用户文档 → 文本分块 → 向量嵌入 → 存入 Redis → 用户提问时检索相关文档 → 增强 LLM 回答。
 type RagModelConfig struct {
-	RagEmbeddingModel string `toml:"embeddingModel"` // 嵌入模型名称，如阿里云 "text-embedding-v4"
-	RagChatModelName  string `toml:"chatModelName"`  // 对话模型名称，如 "qwen-turbo"
-	RagDocDir         string `toml:"docDir"`         // 用户上传文档的存储目录
-	RagBaseUrl        string `toml:"baseUrl"`        // 嵌入/对话 API 的基础 URL
-	RagDimension      int    `toml:"dimension"`      // 向量维度，如 text-embedding-v4 为 1024
+	// 嵌入模型名称，如阿里云 "text-embedding-v4"。
+	RagEmbeddingModel string `toml:"embeddingModel"`
+	// 对话模型名称，如 "qwen-turbo"。
+	RagChatModelName string `toml:"chatModelName"`
+	// 用户上传文档的存储目录。
+	RagDocDir string `toml:"docDir"`
+	// 嵌入/对话 API 的基础 URL。
+	RagBaseUrl string `toml:"baseUrl"`
+	// 向量维度，如 text-embedding-v4 为 1024。
+	RagDimension int `toml:"dimension"`
 }
 
 // VoiceServiceConfig 语音服务配置（百度 TTS 文字转语音）。
 type VoiceServiceConfig struct {
-	VoiceServiceApiKey    string `toml:"voiceServiceApiKey"`    // 百度 TTS API Key
-	VoiceServiceSecretKey string `toml:"voiceServiceSecretKey"` // 百度 TTS Secret Key
+	// 百度 TTS API Key。
+	VoiceServiceApiKey string `toml:"voiceServiceApiKey"`
+	// 百度 TTS Secret Key。
+	VoiceServiceSecretKey string `toml:"voiceServiceSecretKey"`
 }
 
 // AIModelConfig AI 模型通用配置。
 type AIModelConfig struct {
-	APIKey string `toml:"apiKey"` // AI 服务 API Key
+	// AI 服务 API Key。
+	APIKey string `toml:"apiKey"`
 }
 
 // ============================================================================
@@ -111,15 +144,24 @@ type AIModelConfig struct {
 //
 // 每个嵌入字段的 toml tag 对应 config.toml 中的 [section] 名称。
 type Config struct {
-	EmailConfig        `toml:"emailConfig"`        // 对应 [emailConfig] 段
-	RedisConfig        `toml:"redisConfig"`        // 对应 [redisConfig] 段
-	MysqlConfig        `toml:"mysqlConfig"`        // 对应 [mysqlConfig] 段
-	JwtConfig          `toml:"jwtConfig"`          // 对应 [jwtConfig] 段
-	MainConfig         `toml:"mainConfig"`         // 对应 [mainConfig] 段
-	Rabbitmq           `toml:"rabbitmqConfig"`     // 对应 [rabbitmqConfig] 段
-	RagModelConfig     `toml:"ragModelConfig"`     // 对应 [ragModelConfig] 段
-	VoiceServiceConfig `toml:"voiceServiceConfig"` // 对应 [voiceServiceConfig] 段
-	AIModelConfig      `toml:"aiModelConfig"`      // 对应 [aiModelConfig] 段
+	// 对应 [emailConfig] 段。
+	EmailConfig `toml:"emailConfig"`
+	// 对应 [redisConfig] 段。
+	RedisConfig `toml:"redisConfig"`
+	// 对应 [mysqlConfig] 段。
+	MysqlConfig `toml:"mysqlConfig"`
+	// 对应 [jwtConfig] 段。
+	JwtConfig `toml:"jwtConfig"`
+	// 对应 [mainConfig] 段。
+	MainConfig `toml:"mainConfig"`
+	// 对应 [rabbitmqConfig] 段。
+	Rabbitmq `toml:"rabbitmqConfig"`
+	// 对应 [ragModelConfig] 段。
+	RagModelConfig `toml:"ragModelConfig"`
+	// 对应 [voiceServiceConfig] 段。
+	VoiceServiceConfig `toml:"voiceServiceConfig"`
+	// 对应 [aiModelConfig] 段。
+	AIModelConfig `toml:"aiModelConfig"`
 }
 
 // RedisKeyConfig 定义 Redis 中使用的 key 命名模板。
@@ -129,9 +171,12 @@ type Config struct {
 // 硬编码在代码中可以避免被误修改导致数据访问错乱。
 // %s 占位符在使用时由 fmt.Sprintf 替换为具体的用户名。
 type RedisKeyConfig struct {
-	CaptchaPrefix   string // 验证码 key 模板，如 "captcha:%s" → "captcha:zhangsan"
-	IndexName       string // RAG 向量索引名模板，如 "rag_docs:%s:idx"
-	IndexNamePrefix string // RAG 向量 key 前缀模板，如 "rag_docs:%s:"
+	// 验证码 key 模板，如 "captcha:%s" → "captcha:zhangsan"。
+	CaptchaPrefix string
+	// RAG 向量索引名模板，如 "rag_docs:%s:idx"。
+	IndexName string
+	// RAG 向量 key 前缀模板，如 "rag_docs:%s:"。
+	IndexNamePrefix string
 }
 
 // DefaultRedisKeyConfig 是 Redis key 格式的默认配置，程序启动时直接使用。

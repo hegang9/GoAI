@@ -4,36 +4,43 @@ GopherAI 是一个 Go + Vue 的 AI 应用示例，后端基于 Gin，前端基�
 
 ## 项目结构
 
+项目采用「分层架构 + 端口与适配器（Ports & Adapters）」组织，依赖方向统一指向领域层（`internal/domain`）：
+
 ```text
 .
-├── main.go                 # 后端启动入口
-├── config/config.toml      # 后端配置文件
-├── router/                 # API 路由
-├── controller/             # HTTP 控制器
-├── service/                # 业务逻辑
-├── common/                 # MySQL/Redis/RabbitMQ/AI/TTS 等公共组件
-├── model/ dao/ dto/ bo/    # 数据模型、DAO、传输对象
-├── auth/                   # 密码哈希与 JWT 认证
-├── random/                 # 随机码生成
-├── id/                     # 标识生成
-├── fileutil/               # 文件校验与目录清理
-├── mapper/                 # model 与 schema 之间的消息转换
-├── utils/                  # 遗留通用工具（当前仅保留 MD5）
-├── common/aihelper/        # AI 会话管理、模型 provider、工厂与兼容入口
+├── cmd/
+│   ├── server/             # 后端主入口（装配 + 生命周期编排）
+│   └── mcp/                # 独立的 MCP 天气服务/客户端（单独 Go module）
+├── config/                 # 配置加载与 config.toml（按工作目录读取）
+├── internal/
+│   ├── domain/             # 领域层：实体、值对象、聚合与端口接口（无外部依赖）
+│   │   ├── chat/           #   会话领域：Message/Session、Conversation 聚合、Manager、Model/Sink 等端口
+│   │   ├── user/           #   用户领域：User 实体、Repository/PasswordHasher/TokenIssuer/CaptchaStore/Mailer 端口
+│   │   ├── rag/ storage/ image/ tts/  # 其余领域端口
+│   ├── application/        # 应用层：用例编排（chat/user/file/image/tts），仅依赖领域端口
+│   ├── infrastructure/     # 基础设施层：端口的具体实现（适配器）
+│   │   ├── persistence/    #   MySQL + GORM（PO 与仓储实现）
+│   │   ├── cache/redis/    #   Redis 验证码存储与向量索引
+│   │   ├── mq/rabbitmq/    #   消息发布（MessageSink）与消费落库
+│   │   ├── ai/             #   OpenAI/Ollama/RAG/MCP 模型与工厂
+│   │   ├── rag/ storage/ security/ email/ image/ tts/  # 其余适配器
+│   └── interfaces/http/    # 接口层：router/controller/dto/middleware/sse/httpx
+│   └── bootstrap/          # 组合根：自上而下依赖装配与启停
+├── pkg/                    # 跨层通用工具：logger/code/random/id/fileutil/hash
 ├── vue-frontend/           # Vue 前端
 ├── docker-compose.yml      # 本地开发中间件编排
 ├── docs/API.md             # 接口文档
-├── docs/gorm_mapping_rules.md # GORM 映射规则说明
-├── docs/GORM 常用查询语法速查.md # GORM 常用查询速查
 └── 阅读顺序.md              # 项目阅读任务清单
 ```
+
+依赖规则：`interfaces → application → domain`，`infrastructure → domain`（实现端口），`bootstrap` 负责把基础设施适配器注入应用与接口层。领域层不依赖 gin / gorm / eino / redis / rabbitmq 等任何框架，该约束由 `test/architecture_test.go` 固化校验。
 
 ## 环境要求
 
 - Go：见 `.go-version` / `.tool-versions`
 - Node.js 与 npm：用于运行 `vue-frontend`
 - MySQL 8.x：用于用户、会话和消息持久化
-- Redis Stack：普通验证码缓存 + RAG RediSearch 向量索引，标准 Redis 不包含 RediSearch
+- Redis Stack：普通验证码缓存 + RAG RediSearch 向量索引，启动阶段会带超时执行 Ping 校验连接；标准 Redis 不包含 RediSearch
 - RabbitMQ：用于异步消息队列，默认队列名 `Message`
 - 可选外部服务：OpenAI 兼容模型、阿里百炼 Embedding/Chat、百度 TTS、ONNX 图片识别模型
 
@@ -68,6 +75,7 @@ export OPENAI_BASE_URL="https://api.openai.com/v1"
 - `AccountNo` / `account_no`：系统生成的内部账号编号，数据库唯一，用于 JWT、会话归属、上传目录和日志排查，不作为登录输入。
 - `Name` / `name`：用户昵称或显示名，允许重复，不能作为用户唯一标识，也不能与 `AccountNo` 混用。
 - `Email` / `email`：注册邮箱，数据库唯一，用于验证码发送、邮箱重复注册校验和用户登录。
+- 注册时会对随机生成的 `AccountNo` 做有限次数唯一性重试，并使用进程内缓存减少重复数据库查询；数据库唯一索引仍是最终一致性保障。
 - RAG 上传文件按账号编号隔离，目录约定为 `uploads/{account_no}`，避免把昵称或邮箱写入文件路径。
 
 ## 启动依赖
@@ -125,47 +133,48 @@ docker compose down -v
 
 ```bash
 go mod download
-go run main.go
+go run ./cmd/server
 ```
 
-后端启动流程：
+后端启动流程（全部在 `internal/bootstrap` 中显式装配，不再使用全局单例）：
 
-1. 加载配置与初始化日志。
-2. 连接 MySQL 并执行 GORM AutoMigrate。
-3. 从数据库加载历史消息到 AIHelperManager。
-4. 初始化 Redis。
-5. 初始化 RabbitMQ 并启动 `Message` 队列消费者。
-6. 在独立 goroutine 中通过 `http.Server` 监听 `[mainConfig]` 配置的地址和端口。
+1. 初始化日志、加载配置。
+2. 连接 MySQL 并执行 GORM AutoMigrate，构建用户/会话/消息仓储。
+3. 连接 Redis，构建验证码存储与向量索引存储。
+4. 构建 RAG 引擎与 AI 模型工厂，连接 RabbitMQ 并创建消息发布器（作为会话消息的持久化 Sink）。
+5. 构建会话领域管理器，并从数据库回放历史消息重建内存会话上下文（`persist=false`，不重复落库）。
+6. 启动 `Message` 队列消费者，将队列消息通过仓储落库。
+7. 装配应用服务、接口处理器与路由，在独立 goroutine 中通过 `http.Server` 监听 `[mainConfig]` 地址端口。
 
-后端关闭流程（优雅关闭）：
+后端关闭流程（优雅关闭，由 `App.Shutdown` 负责）：
 
 1. 主协程监听 `SIGINT`（Ctrl+C）/ `SIGTERM`（容器停止）信号。
 2. 收到信号后在 10 秒超时内调用 `http.Server.Shutdown`，停止接收新请求并等待在途请求处理完成。
 3. 依次关闭 RabbitMQ（消费者随连接关闭退出）、Redis、MySQL 连接，释放资源后退出。
 
-## 工具包拆分说明
+## 分层职责说明
 
-为减少 `utils` 模块职责混杂，项目已按职责拆出以下包：
+各层职责与关键包：
 
-- `auth`：密码哈希校验与 JWT 生成/解析
-- `random`：随机数字码生成
-- `id`：UUID 生成
-- `fileutil`：上传文件校验、目录文件清理
-- `mapper`：`model.Message` 与 `schema.Message` 的相互转换
-- `utils`：当前仅保留遗留 `MD5` 接口，新增通用逻辑不再继续放入该包
-- `common/aihelper/provider`：模型接口与 OpenAI / Ollama / RAG / MCP provider 实现
-- `common/aihelper/session`：单会话消息历史、持久化回调与同步/流式生成协调
-- `common/aihelper/factory`：根据模型类型和配置创建 provider 与 helper
-- `common/aihelper/manager`：按用户/会话维度管理 helper 生命周期
-- `common/aihelper`：保留兼容入口，降低上层调用改动面
-- `service/tts`：TTS 业务服务层，编排 `common/tts` 并返回 `bo` 与错误码，使 controller 不再直接依赖基础设施
-- `common/rag`：RAG 已按职责拆分为多个文件——`embedding.go`（向量生成器）、`document.go`（文档加载/切块）、`indexer.go`（向量索引与生命周期）、`retriever.go`（向量检索）、`prompt.go`（提示词构造）、`store.go`（`uploads/{account_no}` 文件系统约定）
-
-当前相关调用已迁移到这些明确包中，例如用户认证、JWT 中间件、RAG 文件上传、AI 消息转换以及 AIHelper 内部职责拆分逻辑。
+- **领域层 `internal/domain`**：定义业务实体与端口接口，不含任何框架依赖。
+  - `chat`：`Message`/`Session` 值对象、`Conversation` 聚合（追加消息并驱动模型生成）、`Manager` 领域服务（按用户/会话维度管理会话），以及 `Model`/`ModelFactory`/`MessageSink`/`MessageRepository`/`SessionRepository` 等端口。
+  - `user`：`User` 实体与 `Repository`/`PasswordHasher`/`TokenIssuer`/`CaptchaStore`/`Mailer` 端口。
+  - `rag`/`storage`/`image`/`tts`：RAG 索引、用户文档存储、图片识别、语音合成等端口。
+- **应用层 `internal/application`**：用例编排（`user`/`chat`/`file`/`image`/`tts`），只依赖领域端口，输出应用级结果类型。
+- **基础设施层 `internal/infrastructure`**：端口的具体实现（适配器）。
+  - `persistence`：GORM 持久化对象（PO）与用户/会话/消息仓储实现。
+  - `cache/redis`：验证码存储与 RAG 向量索引存储。
+  - `mq/rabbitmq`：消息发布器（实现 `MessageSink`）与消费落库。
+  - `ai`：OpenAI / Ollama / RAG / MCP 模型实现与模型工厂，`schema.go` 负责领域消息与模型消息互转。
+  - `rag`：向量生成、文档加载/切块、索引、检索、提示词构造。
+  - `security`：bcrypt 密码哈希与 JWT 签发/解析；`email`/`image`/`tts`/`storage` 为其余适配器。
+- **接口层 `internal/interfaces/http`**：`router`/`controller`/`dto`/`middleware`/`sse`/`httpx`，负责协议绑定与响应。
+- **组合根 `internal/bootstrap`**：把基础设施适配器注入应用与接口层，并管理启停。
+- **跨层工具 `pkg`**：`logger`/`code`/`random`/`id`/`fileutil`/`hash`，不含业务逻辑。
 
 ### 密码处理
 
-`auth/password.go` 提供用户密码相关的基础能力：
+`internal/infrastructure/security/password.go` 提供用户密码相关的基础能力：
 
 - `HashPassword`：使用 bcrypt 对明文密码进行不可逆哈希，哈希结果包含随机盐，可存入数据库。
 - `CheckPasswordHash`：登录时将用户输入的明文密码与数据库中的 bcrypt 哈希值进行比对，匹配成功返回 `true`。
@@ -188,23 +197,23 @@ npm run serve
 
 ## JSON 控制器约定
 
-为统一 `application/json` 接口的请求绑定与响应处理，项目在 `controller/common.go` 中提供了通用辅助函数：
+为统一 `application/json` 接口的请求绑定与响应处理，项目在 `internal/interfaces/http/httpx` 中提供了通用辅助函数：
 
-- `controller.BindJSON[T]`：统一完成 JSON 请求体绑定与参数校验，参数错误时直接返回标准错误响应。
-- `controller.JSON`：统一输出业务成功或失败响应，减少各控制器重复拼装返回值。
-- `controller.Handler(...)`：提供底层 JSON 绑定包装实现；`router` 包再通过同名 `Handler(...)` 薄包装暴露给路由注册使用，例如 `router/user.go`、`router/ai.go` 中的 `r.POST(..., Handler(controller.xxx))`。
+- `httpx.BindJSON[T]`：统一完成 JSON 请求体绑定与参数校验，参数错误时直接返回标准错误响应。
+- `httpx.JSON`：统一输出业务成功或失败响应，减少各控制器重复拼装返回值。
+- `httpx.Handler(...)`：底层 JSON 绑定包装实现，供 `router` 注册路由时使用，例如 `r.POST(..., httpx.Handler(h.Login))`。
 
-采用这一约定后，控制器处理函数可以直接声明为接收类型化 DTO，例如 `func(c *gin.Context, req dto.LoginRequest)`，无需在每个处理函数里重复编写 `ShouldBindJSON` 和参数错误响应逻辑。
+采用这一约定后，控制器处理函数可以直接声明为接收类型化 DTO，例如 `func(c *gin.Context, req dto.LoginRequest)`，无需在每个处理函数里重复编写 `ShouldBindJSON` 和参数错误响应逻辑。控制器统一实现为可注入的 `Handlers` 结构体方法，依赖通过 `bootstrap` 注入。
 
 ## SSE 流式约定
 
-流式对话接口（如 `POST /api/v1/ai/chat/send-stream`）的 HTTP 传输细节由 controller 层统一接管，service 层不再依赖 `net/http`：
+流式对话接口（如 `POST /api/v1/ai/chat/send-stream`）的 HTTP 传输细节由接口层统一接管，应用层与领域层不依赖 `net/http`：
 
-- `controller/sse.go` 提供 `SSEWriter` 适配器，负责写入 SSE 响应头、`data:` 帧编码、`flush`、会话 `sessionId` 首帧与 `[DONE]` 结束帧。
-- `service/session` 的流式函数（`StreamMessageToExistingSession`、`ChatStreamSend`）只接收内容分片回调 `func(chunk string)`，专注驱动 AI 流式生成，不感知传输协议。
-- 控制器通过 `NewSSEWriter(c)` 创建适配器，并将 `sse.Chunk()` 作为回调传入 service。
+- `internal/interfaces/http/sse` 提供 `Writer` 适配器，负责写入 SSE 响应头、`data:` 帧编码、`flush`、会话 `sessionId` 首帧与 `[DONE]` 结束帧。
+- 应用层的流式用例只接收内容分片回调 `func(chunk string)`（对应领域 `chat.StreamCallback`），专注驱动 AI 流式生成，不感知传输协议。
+- 控制器创建 SSE 适配器，并将其分片写入函数作为回调传入应用服务。
 
-这样业务逻辑与传输协议解耦，未来若新增其他流式传输方式（如 WebSocket），只需替换适配器而无需改动 service。
+这样业务逻辑与传输协议解耦，未来若新增其他流式传输方式（如 WebSocket），只需替换适配器而无需改动应用与领域层。
 
 ## 注意事项
 
