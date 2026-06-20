@@ -131,6 +131,17 @@ type AIModelConfig struct {
 	APIKey string `toml:"apiKey"`
 }
 
+// ChatReplayConfig 会话历史回放配置，对应 config.toml 的 [chatReplayConfig] 段。
+//
+// 启动时仅预热最近 SessionLimit 个活跃会话到内存；
+// 其余会话在 ChatSend / StreamToSession / GetChatHistory 首次访问时由 ensureSessionLoaded 懒加载。
+type ChatReplayConfig struct {
+	// SessionLimit 启动时预热的最近活跃会话数量上限（全局，非 per-user）；<=0 时运行时代码默认 50。
+	SessionLimit int `toml:"sessionLimit"`
+	// DefaultModelType 启动预热与查询历史时使用的默认模型类型（"1" OpenAI / "2" RAG 等）；为空时默认 "1"。
+	DefaultModelType string `toml:"defaultModelType"`
+}
+
 // ============================================================================
 // 聚合配置 & 全局单例
 // ============================================================================
@@ -144,24 +155,26 @@ type AIModelConfig struct {
 //
 // 每个嵌入字段的 toml tag 对应 config.toml 中的 [section] 名称。
 type Config struct {
-	// 对应 [emailConfig] 段。
+	// 对应 [emailConfig] 段
 	EmailConfig `toml:"emailConfig"`
-	// 对应 [redisConfig] 段。
+	// 对应 [redisConfig] 段
 	RedisConfig `toml:"redisConfig"`
-	// 对应 [mysqlConfig] 段。
+	// 对应 [mysqlConfig] 段
 	MysqlConfig `toml:"mysqlConfig"`
-	// 对应 [jwtConfig] 段。
+	// 对应 [jwtConfig] 段
 	JwtConfig `toml:"jwtConfig"`
-	// 对应 [mainConfig] 段。
+	// 对应 [mainConfig] 段
 	MainConfig `toml:"mainConfig"`
-	// 对应 [rabbitmqConfig] 段。
+	// 对应 [rabbitmqConfig] 段
 	Rabbitmq `toml:"rabbitmqConfig"`
-	// 对应 [ragModelConfig] 段。
+	// 对应 [ragModelConfig] 段
 	RagModelConfig `toml:"ragModelConfig"`
-	// 对应 [voiceServiceConfig] 段。
+	// 对应 [voiceServiceConfig] 段
 	VoiceServiceConfig `toml:"voiceServiceConfig"`
-	// 对应 [aiModelConfig] 段。
+	// 对应 [aiModelConfig] 段
 	AIModelConfig `toml:"aiModelConfig"`
+	// 对应 [chatReplayConfig] 段
+	ChatReplayConfig `toml:"chatReplayConfig"`
 }
 
 // RedisKeyConfig 定义 Redis 中使用的 key 命名模板。

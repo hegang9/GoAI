@@ -46,3 +46,51 @@ func (r *SessionRepository) ListByAccount(ctx context.Context, accountNo string)
 	}
 	return sessions, nil
 }
+
+// recentSessionRow 是 ListRecent 联表查询的行结构，仅用于 Scan 映射，不对应独立数据表。
+type recentSessionRow struct {
+	// ID 会话唯一标识（UUID）。
+	ID string `gorm:"column:id"`
+	// AccountNo 会话归属的内部账号编号。
+	AccountNo string `gorm:"column:account_no"`
+	// Title 会话标题。
+	Title string `gorm:"column:title"`
+}
+
+// ListRecent 查询全局最近活跃的会话，用于启动阶段策略 B 的内存预热。
+//
+// 「活跃」定义为该会话最后一条消息的 created_at（子查询 MAX(created_at)）；
+// 仅返回在 messages 表中有记录且 sessions 未软删除的会话；
+// 结果按 last_active 降序排列，取前 limit 条。
+func (r *SessionRepository) ListRecent(ctx context.Context, limit int) ([]chat.Session, error) {
+	if limit <= 0 {
+		return []chat.Session{}, nil
+	}
+
+	// 子查询：聚合每个 session_id 的最后消息时间，作为活跃度排序依据。
+	subQuery := r.db.WithContext(ctx).
+		Model(&MessagePO{}).
+		Select("session_id, MAX(created_at) AS last_active").
+		Group("session_id")
+
+	var rows []recentSessionRow
+	if err := r.db.WithContext(ctx).
+		Table("(?) AS m", subQuery).
+		Joins("INNER JOIN sessions s ON s.id = m.session_id AND s.deleted_at IS NULL").
+		Select("s.id, s.account_no, s.title").
+		Order("m.last_active DESC").
+		Limit(limit).
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	sessions := make([]chat.Session, 0, len(rows))
+	for _, row := range rows {
+		sessions = append(sessions, chat.Session{
+			ID:        row.ID,
+			AccountNo: row.AccountNo,
+			Title:     row.Title,
+		})
+	}
+	return sessions, nil
+}

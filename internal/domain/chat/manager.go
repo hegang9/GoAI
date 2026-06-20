@@ -68,3 +68,44 @@ func (m *Manager) Get(accountNo, sessionID string) (*Conversation, bool) {
 	conv, ok := userConvs[sessionID]
 	return conv, ok
 }
+
+// ReplayMessages 将数据库中的历史消息回放到内存会话，用于启动预热或运行时懒加载。
+//
+// 回放语义：
+//   - 每条消息均以 persist=false 追加，仅重建内存上下文，不触发 MessageSink，避免二次落库；
+//   - 消息顺序由调用方保证（通常按 created_at、id 升序传入）；
+//   - 若会话已在内存中则直接返回 nil（幂等，防止重复回放导致消息重复）。
+//
+// 参数说明：
+//   - accountNo：消息归属的内部账号编号，用于会话映射与模型参数；
+//   - sessionID：目标会话标识；
+//   - modelType：创建 Conversation 时使用的模型类型（"1" OpenAI / "2" RAG 等）；
+//   - params：传给 ModelFactory 的附加参数（RAG/MCP 需要 account_no）；
+//   - msgs：待回放的历史消息列表，为空时直接返回。
+func (m *Manager) ReplayMessages(
+	ctx context.Context,
+	accountNo, sessionID, modelType string,
+	params map[string]any,
+	msgs []Message,
+) error {
+	// 会话已存在说明此前已回放或已有对话，跳过以避免重复追加。
+	if _, ok := m.Get(accountNo, sessionID); ok {
+		return nil
+	}
+	if len(msgs) == 0 {
+		return nil
+	}
+
+	// 创建会话聚合并绑定模型，随后逐条写入历史。
+	conv, err := m.GetOrCreate(ctx, accountNo, sessionID, modelType, params)
+	if err != nil {
+		return err
+	}
+	for _, msg := range msgs {
+		// persist=false：回放阶段不写 MQ，仅填充内存 messages 切片。
+		if err := conv.AddMessage(msg.Content, msg.AccountNo, msg.IsUser, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
