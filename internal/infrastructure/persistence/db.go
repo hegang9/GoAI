@@ -38,12 +38,12 @@ func Connect(cfg Config) (*gorm.DB, error) {
 	}
 
 	db, err := gorm.Open(mysql.New(mysql.Config{
-		DSN:                       dsn,
-		DefaultStringSize:         256,
-		DisableDatetimePrecision:  true,
-		DontSupportRenameIndex:    true,
-		DontSupportRenameColumn:   true,
-		SkipInitializeWithVersion: false,
+		DSN:                       dsn,   // 数据库连接字符串
+		DefaultStringSize:         256,   // 默认字符串大小
+		DisableDatetimePrecision:  true,  // 禁用时间精度
+		DontSupportRenameIndex:    true,  // 禁用重命名索引
+		DontSupportRenameColumn:   true,  // 禁用重命名列
+		SkipInitializeWithVersion: false, // 跳过版本初始化，根据实际版本选择合适的SQL方言
 	}), &gorm.Config{Logger: log})
 	if err != nil {
 		return nil, err
@@ -53,10 +53,15 @@ func Connect(cfg Config) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 配置连接池
+	// 最多10个空闲连接，减少频繁地建连/断连
 	sqlDB.SetMaxIdleConns(10)
+	// 最多100个并发连接，防止MySQL被打爆
 	sqlDB.SetMaxOpenConns(100)
+	// 连接最多存活1h，定期淘汰过期的连接，避免连接泄漏
 	sqlDB.SetConnMaxLifetime(time.Hour)
 
+	// 连接建立后立即执行AutoMigrate，确保数据库表结构与PO定义一致，自动建表或补充字段
 	if err := migrate(db); err != nil {
 		return nil, err
 	}

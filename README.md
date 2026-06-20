@@ -196,7 +196,7 @@ go run ./cmd/server
   - `rag`/`storage`/`image`/`tts`：RAG 索引、用户文档存储、图片识别、语音合成等端口。
 - **应用层 `internal/application`**：用例编排（`user`/`chat`/`file`/`image`/`tts`），只依赖领域端口，输出应用级结果类型。
 - **基础设施层 `internal/infrastructure`**：端口的具体实现（适配器）。
-  - `persistence`：GORM 持久化对象（PO）与用户/会话/消息仓储实现。
+  - `persistence`：GORM 持久化对象（PO，仅 `gorm` 标签映射表结构）与用户/会话/消息仓储实现；对外 JSON 由 `interfaces/http/dto` 定义。
   - `cache/redis`：验证码存储与 RAG 向量索引存储。
   - `mq/rabbitmq`：消息发布器（实现 `MessageSink`）与消费落库。
   - `ai`：OpenAI / Ollama / RAG / MCP 模型实现与模型工厂，`schema.go` 负责领域消息与模型消息互转。

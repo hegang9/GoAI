@@ -41,7 +41,7 @@ func (r *MessageRepository) ListAll(ctx context.Context) ([]chat.Message, error)
 	if err := r.db.WithContext(ctx).Order("created_at asc, id asc").Find(&pos).Error; err != nil {
 		return nil, err
 	}
-	return messagesFromPOs(pos), nil
+	return messageToDomain(pos), nil
 }
 
 // ListBySession 按账号与会话 ID 查询消息历史，供回放与懒加载使用。
@@ -56,11 +56,11 @@ func (r *MessageRepository) ListBySession(ctx context.Context, accountNo, sessio
 		Find(&pos).Error; err != nil {
 		return nil, err
 	}
-	return messagesFromPOs(pos), nil
+	return messageToDomain(pos), nil
 }
 
-// messagesFromPOs 将 GORM 持久化对象批量映射为领域 Message，供 ListAll / ListBySession 复用。
-func messagesFromPOs(pos []MessagePO) []chat.Message {
+// messageToDomain 将 GORM 持久化对象批量映射为领域 Message，供 ListAll / ListBySession 复用。
+func messageToDomain(pos []MessagePO) []chat.Message {
 	msgs := make([]chat.Message, 0, len(pos))
 	for _, po := range pos {
 		msgs = append(msgs, chat.Message{

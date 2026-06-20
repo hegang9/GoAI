@@ -84,13 +84,18 @@ func (r *SessionRepository) ListRecent(ctx context.Context, limit int) ([]chat.S
 		return nil, err
 	}
 
-	sessions := make([]chat.Session, 0, len(rows))
-	for _, row := range rows {
-		sessions = append(sessions, chat.Session{
-			ID:        row.ID,
-			AccountNo: row.AccountNo,
-			Title:     row.Title,
+	sessions := sessionToDomain(rows)
+	return sessions, nil
+}
+
+func sessionToDomain(pos []recentSessionRow) []chat.Session {
+	sess := make([]chat.Session, 0, len(pos))
+	for _, po := range pos {
+		sess = append(sess, chat.Session{
+			ID:        po.ID,
+			AccountNo: po.AccountNo,
+			Title:     po.Title,
 		})
 	}
-	return sessions, nil
+	return sess
 }
