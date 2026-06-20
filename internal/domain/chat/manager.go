@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-// Manager 是会话领域服务：按「账号 -> 会话 -> Conversation」维度管理会话聚合的生命周期。
+// Manager 是会话生命周期管理器：按「账号 -> 会话 -> Conversation」维度管理会话聚合的生命周期。
 //
 // 它取代了旧的 common/aihelper/manager 全局单例，改为由 bootstrap 显式构造并注入，
 // 依赖 ModelFactory 端口创建模型、依赖 MessageSink 端口持久化消息。
@@ -14,7 +14,7 @@ type Manager struct {
 	factory ModelFactory
 	// sink 消息持久化端口，注入到每个新建会话聚合中。
 	sink MessageSink
-	// conversations 记录每个账号下的会话聚合实例。
+	// conversations 两级映射记录每个账号下的会话聚合实例。
 	conversations map[string]map[string]*Conversation
 	// mu 保护映射表的并发访问。
 	mu sync.RWMutex

@@ -50,6 +50,7 @@ func (c *Conversation) AddMessage(content, accountNo string, isUser, persist boo
 		IsUser:    isUser,
 	}
 	// 统一加锁，避免同步与流式路径并发追加产生竞态。
+	// TODO: 确定此处强制串行会不会导致性能损失严重
 	c.mu.Lock()
 	c.messages = append(c.messages, msg)
 	c.mu.Unlock()

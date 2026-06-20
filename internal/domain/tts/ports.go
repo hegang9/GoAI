@@ -11,7 +11,7 @@ type TaskResult struct {
 	TaskID string
 	// Status 任务状态。
 	Status string
-	// SpeechURL 合成完成后的音频地址，未完成时为空。
+	// SpeechURL 合成完成后的音频文件地址，未完成时为空。
 	SpeechURL string
 }
 

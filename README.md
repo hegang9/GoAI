@@ -35,6 +35,18 @@ GopherAI 是一个 Go + Vue 的 AI 应用示例，后端基于 Gin，前端基�
 
 依赖规则：`interfaces → application → domain`，`infrastructure → domain`（实现端口），`bootstrap` 负责把基础设施适配器注入应用与接口层。领域层不依赖 gin / gorm / eino / redis / rabbitmq 等任何框架，该约束由 `test/architecture_test.go` 固化校验。
 
+## 测试
+
+```bash
+go test ./test/... -v
+```
+
+`test/` 目录包含：
+
+- `architecture_test.go`：领域层零框架依赖约束
+- `code_test.go` / `hash_test.go` / `id_test.go` / `random_test.go` / `logger_test.go` / `fileutil_test.go`：对应 `pkg/` 工具包测试
+- `storage_test.go`：`internal/infrastructure/storage` 文档存储与路径安全测试
+
 ## 环境要求
 
 - Go：见 `.go-version` / `.tool-versions`
@@ -43,6 +55,17 @@ GopherAI 是一个 Go + Vue 的 AI 应用示例，后端基于 Gin，前端基�
 - Redis Stack：普通验证码缓存 + RAG RediSearch 向量索引，启动阶段会带超时执行 Ping 校验连接；标准 Redis 不包含 RediSearch
 - RabbitMQ：用于异步消息队列，默认队列名 `Message`
 - 可选外部服务：OpenAI 兼容模型、阿里百炼 Embedding/Chat、百度 TTS、ONNX 图片识别模型
+
+## 编辑器配置（VS Code / Cursor）
+
+项目根目录提供团队共享的工作区配置：
+
+| 文件 | 作用 |
+| --- | --- |
+| `.vscode/settings.json` | Go（gofmt + gopls + staticcheck）、Vue/ESLint、保存时格式化与 import 整理、文件排除规则 |
+| `.vscode/extensions.json` | 推荐扩展：Go、Volar、ESLint、Prettier、TOML 等 |
+
+首次打开项目时，按提示安装推荐扩展即可。个人偏好（主题、翻译、Copilot 等）请保留在用户级 `settings.json`，不要写入工作区配置。
 
 ## 配置说明
 
@@ -171,6 +194,9 @@ go run ./cmd/server
 - **接口层 `internal/interfaces/http`**：`router`/`controller`/`dto`/`middleware`/`sse`/`httpx`，负责协议绑定与响应。
 - **组合根 `internal/bootstrap`**：把基础设施适配器注入应用与接口层，并管理启停。
 - **跨层工具 `pkg`**：`logger`/`code`/`random`/`id`/`fileutil`/`hash`，不含业务逻辑。
+  - `fileutil.ValidatePath`：校验目标路径是否位于基准目录内，防止 `../` 路径逃逸。
+  - `fileutil.RemoveAllFilesInDir`：清理目录内普通文件时校验条目名并跳过符号链接。
+  - `storage.UserDocDir` / `LocalDocStorage.Save`：对 `accountNo` 与 `storedName` 做 `filepath.IsLocal` 与路径约束校验。
 
 ### 密码处理
 

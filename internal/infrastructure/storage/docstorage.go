@@ -10,6 +10,7 @@ import (
 
 	domainstorage "GopherAI/internal/domain/storage"
 	"GopherAI/pkg/fileutil"
+	"GopherAI/pkg/logger"
 )
 
 // uploadRoot 用户上传文档根目录，是上传写入与 RAG 检索读取之间的共享约定。
@@ -25,14 +26,27 @@ func NewLocalDocStorage() *LocalDocStorage { return &LocalDocStorage{} }
 var _ domainstorage.DocStorage = (*LocalDocStorage)(nil)
 
 // UserDocDir 返回指定账号的文档目录（包级可见，供 infrastructure/rag 复用约定）。
-func UserDocDir(accountNo string) string {
-	return filepath.Join(uploadRoot, accountNo)
+func UserDocDir(accountNo string) (string, error) {
+	if accountNo == "" || !filepath.IsLocal(accountNo) {
+		logger.Warn("UserDocDir invalid account number", "accountNo", accountNo)
+		return "", fmt.Errorf("invalid account number: %q", accountNo)
+	}
+	dir := filepath.Join(uploadRoot, accountNo)
+	if err := fileutil.ValidatePath(uploadRoot, dir); err != nil {
+		logger.Warn("UserDocDir path escape blocked", "accountNo", accountNo, "err", err)
+		return "", fmt.Errorf("invalid account number: %w", err)
+	}
+	return dir, nil
 }
 
 // ResolveUserDocFilename 解析指定账号已上传的文档文件名。
 // 业务约定：每个账号仅保留一个文档。
 func ResolveUserDocFilename(accountNo string) (string, error) {
-	files, err := os.ReadDir(UserDocDir(accountNo))
+	dir, err := UserDocDir(accountNo)
+	if err != nil {
+		return "", err
+	}
+	files, err := os.ReadDir(dir)
 	if err != nil || len(files) == 0 {
 		return "", fmt.Errorf("no uploaded file found for account %s", accountNo)
 	}
@@ -46,7 +60,11 @@ func ResolveUserDocFilename(accountNo string) (string, error) {
 
 // ListUserDocs 列出指定账号当前已存储的文档文件名。
 func (s *LocalDocStorage) ListUserDocs(accountNo string) ([]string, error) {
-	files, err := os.ReadDir(UserDocDir(accountNo))
+	dir, err := UserDocDir(accountNo)
+	if err != nil {
+		return nil, err
+	}
+	files, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -64,16 +82,32 @@ func (s *LocalDocStorage) ListUserDocs(accountNo string) ([]string, error) {
 
 // ClearUserDocs 清理指定账号已存储的全部文档文件，保留目录。
 func (s *LocalDocStorage) ClearUserDocs(accountNo string) error {
-	return fileutil.RemoveAllFilesInDir(UserDocDir(accountNo))
+	dir, err := UserDocDir(accountNo)
+	if err != nil {
+		return err
+	}
+	return fileutil.RemoveAllFilesInDir(dir)
 }
 
 // Save 以 storedName 为文件名保存内容到账号目录，返回保存后的本地路径。
 func (s *LocalDocStorage) Save(accountNo, storedName string, content io.Reader) (string, error) {
-	dir := UserDocDir(accountNo)
+	dir, err := UserDocDir(accountNo)
+	if err != nil {
+		return "", err
+	}
+	if storedName == "" || !filepath.IsLocal(storedName) {
+		logger.Warn("Save invalid stored name", "accountNo", accountNo, "storedName", storedName)
+		return "", fmt.Errorf("invalid stored name: %q", storedName)
+	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
+		logger.Error("Save mkdir failed", "dir", dir, "err", err)
 		return "", err
 	}
 	localPath := filepath.Join(dir, storedName)
+	if err := fileutil.ValidatePath(dir, localPath); err != nil {
+		logger.Warn("Save path escape blocked", "accountNo", accountNo, "storedName", storedName, "err", err)
+		return "", err
+	}
 	dst, err := os.Create(localPath)
 	if err != nil {
 		return "", err
