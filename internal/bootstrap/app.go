@@ -129,9 +129,10 @@ func New() (*App, error) {
 	// —— 会话领域管理器（取代全局单例） ——
 	manager := domainchat.NewManager(modelFactory, publisher)
 
-	// 用数据库历史消息回放、重建内存会话上下文。
-	if err := replayHistory(manager, messageRepo); err != nil {
-		return nil, fmt.Errorf("replay history failed: %w", err)
+	// 启动时仅回放最近 N 个活跃会话，其余会话在运行时按需懒加载。
+	replayCfg := normalizeChatReplayConfig(conf.ChatReplayConfig)
+	if err := replayRecentSessions(manager, sessionRepo, messageRepo, replayCfg); err != nil {
+		return nil, fmt.Errorf("replay recent sessions failed: %w", err)
 	}
 
 	// 启动消费者：把队列中的消息落库（消费端 -> 仓储）。
@@ -156,7 +157,7 @@ func New() (*App, error) {
 
 	// —— 应用服务 ——
 	userSvc := userapp.NewService(userRepo, hasher, issuer, captchaStore, mailer)
-	chatSvc := chat.NewService(manager, sessionRepo)
+	chatSvc := chat.NewService(manager, sessionRepo, messageRepo, replayCfg.DefaultModelType)
 	fileSvc := fileapp.NewService(docStorage, ragEngine)
 	imageSvc := imageapp.NewService(recognizer)
 	ttsSvc := ttsapp.NewService(synthesizer)
@@ -212,29 +213,87 @@ func (a *App) Shutdown(ctx context.Context) {
 	logger.Info("shutdown: completed")
 }
 
-// replayHistory 从数据库加载历史消息，重建内存中的会话上下文。
+// chatReplayRuntimeConfig 是启动回放阶段的运行时配置，由 normalizeChatReplayConfig 填充默认值后生成。
+type chatReplayRuntimeConfig struct {
+	// SessionLimit 启动时预热的最近活跃会话数量上限（全局）。
+	SessionLimit int
+	// DefaultModelType 预热回放时创建 Conversation 使用的默认模型类型。
+	DefaultModelType string
+}
+
+// normalizeChatReplayConfig 读取 TOML 配置并填充回放策略的默认值。
+//
+// 默认值：sessionLimit=50，defaultModelType="1"。
+func normalizeChatReplayConfig(cfg config.ChatReplayConfig) chatReplayRuntimeConfig {
+	out := chatReplayRuntimeConfig{
+		SessionLimit:     cfg.SessionLimit,
+		DefaultModelType: cfg.DefaultModelType,
+	}
+	if out.SessionLimit <= 0 {
+		out.SessionLimit = 50
+	}
+	if out.DefaultModelType == "" {
+		out.DefaultModelType = "1"
+	}
+	return out
+}
+
+// replayRecentSessions：仅将最近 N 个活跃会话预热到内存。
+//
+// 执行步骤：
+//  1. sessionRepo.ListRecent 按消息最后活跃时间取全局 top N 会话；
+//  2. 对每个会话 messageRepo.ListBySession 拉取完整消息历史；
+//  3. manager.ReplayMessages 以 persist=false 写入内存，不触发 MQ。
+//
+// 未入选的冷会话不在启动阶段加载，留待应用层 ensureSessionLoaded 在首次访问时懒加载。
 //
 // 一致性保证：
-//   - 顺序：ListAll 按 created_at、id 升序返回，回放顺序与插入顺序一致；
+//   - 顺序：ListBySession 按 created_at、id 升序返回，回放顺序与插入顺序一致；
 //   - 角色：使用每条消息持久化的 IsUser，不做下标推断；
 //   - 不重复落库：回放统一 persist=false，仅写内存、不再发布到 MQ，避免二次持久化。
-func replayHistory(manager *domainchat.Manager, repo domainchat.MessageRepository) error {
+func replayRecentSessions(
+	manager *domainchat.Manager,
+	sessionRepo domainchat.SessionRepository,
+	messageRepo domainchat.MessageRepository,
+	cfg chatReplayRuntimeConfig,
+) error {
 	ctx := context.Background()
-	msgs, err := repo.ListAll(ctx)
+	start := time.Now()
+
+	sessions, err := sessionRepo.ListRecent(ctx, cfg.SessionLimit)
 	if err != nil {
+		logger.Error("replayRecentSessions ListRecent failed", "err", err)
 		return err
 	}
-	for _, m := range msgs {
-		// 回放统一使用默认 OpenAI 模型类型重建上下文。
-		conv, err := manager.GetOrCreate(ctx, m.AccountNo, m.SessionID, "1", nil)
+
+	// 统计实际回放成功的会话数与消息条数，便于启动阶段观测预热效果。
+	var replayedSessions, totalMsgs int
+	for _, sess := range sessions {
+		msgs, err := messageRepo.ListBySession(ctx, sess.AccountNo, sess.ID)
 		if err != nil {
-			logger.Error("replayHistory create conversation failed", "accountNo", m.AccountNo, "session", m.SessionID, "err", err)
+			logger.Error("replayRecentSessions ListBySession failed",
+				"accountNo", sess.AccountNo, "sessionID", sess.ID, "err", err)
 			continue
 		}
-		if err := conv.AddMessage(m.Content, m.AccountNo, m.IsUser, false); err != nil {
-			logger.Error("replayHistory add message failed", "session", m.SessionID, "err", err)
+		if len(msgs) == 0 {
+			continue
 		}
+
+		params := map[string]any{"account_no": sess.AccountNo}
+		if err := manager.ReplayMessages(ctx, sess.AccountNo, sess.ID, cfg.DefaultModelType, params, msgs); err != nil {
+			logger.Error("replayRecentSessions ReplayMessages failed",
+				"accountNo", sess.AccountNo, "sessionID", sess.ID, "err", err)
+			continue
+		}
+		replayedSessions++
+		totalMsgs += len(msgs)
 	}
-	logger.Info("conversation manager init success")
+
+	logger.Info("replayRecentSessions completed",
+		"sessionLimit", cfg.SessionLimit,
+		"sessionsSelected", len(sessions),
+		"sessionsReplayed", replayedSessions,
+		"messagesReplayed", totalMsgs,
+		"duration", time.Since(start))
 	return nil
 }

@@ -19,31 +19,37 @@ port = 3306
 user = "hegang"
 password = "hg200512hg"
 databaseName = "GopherAI"
-charset =  "utf8mb4"
+charset = "utf8mb4"
 
 [jwtConfig]
- expire_duration= 8760
- issuer= "huanheart"
- subject= "GopherAI"
- key= "GopherAI-v1"
+expire_duration = 8760
+issuer = "huanheart"
+subject = "GopherAI"
+key = "GopherAI-v1"
 
- [rabbitmqConfig]
-  host= "rabbitmq"
-  port= 5672
-  username= "root"
-  password= "123456"
-  vhost= "/"
+[rabbitmqConfig]
+host = "rabbitmq"
+port = 5672
+username = "root"
+password = "123456"
+vhost = "/"
 
- [ragModelConfig]
-  embeddingModel= "text-embedding-v4"
-  chatModelName="qwen-turbo"
-  docDir = "./docs"
-  baseUrl="https://dashscope.aliyuncs.com/compatible-mode/v1"
-  dimension=1024
+[ragModelConfig]
+embeddingModel = "text-embedding-v4"
+chatModelName = "qwen-turbo"
+docDir = "./docs"
+baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+dimension = 1024
 
-  [voiceServiceConfig]
-  voiceServiceApiKey = "baiduApiKey"
-  voiceServiceSecretKey ="baiduSecretKey"
+[voiceServiceConfig]
+voiceServiceApiKey = "baiduApiKey"
+voiceServiceSecretKey = "baiduSecretKey"
 
-  [aiModelConfig]
-  apiKey = "your-api-key"
+[aiModelConfig]
+apiKey = "your-api-key"
+
+[chatReplayConfig]
+# 启动时预加载的最近活跃session数量上限
+sessionLimit = 10
+# 启动回放使用的默认模型类型（"1" OpenAI 兼容）；运行时懒加载使用请求中的 modelType
+defaultModelType = "1"

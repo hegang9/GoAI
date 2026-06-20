@@ -38,8 +38,11 @@ type MessageSink interface {
 type MessageRepository interface {
 	// Create 持久化一条消息。
 	Create(ctx context.Context, msg Message) error
-	// ListAll 读取全部历史消息，按时间、ID 升序返回，用于启动时回放会话上下文。
+	// ListAll 读取全部历史消息，按时间、ID 升序返回（保留兼容，启动回放不再使用）。
 	ListAll(ctx context.Context) ([]Message, error)
+	// ListBySession 读取指定账号下某会话的全部消息，按 created_at、id 升序返回。
+	// accountNo 用于校验会话归属，防止跨账号读取历史；供启动预热与运行时懒加载使用。
+	ListBySession(ctx context.Context, accountNo, sessionID string) ([]Message, error)
 }
 
 // SessionRepository 是会话持久化端口，由 infrastructure/persistence 实现。
@@ -48,4 +51,7 @@ type SessionRepository interface {
 	Create(ctx context.Context, s Session) (Session, error)
 	// ListByAccount 查询指定账号的全部会话。
 	ListByAccount(ctx context.Context, accountNo string) ([]Session, error)
+	// ListRecent 按消息最后活跃时间降序返回全局最近会话列表，供启动阶段预热内存上下文。
+	// limit 为全局上限（非 per-user）；limit <= 0 时实现方应返回空列表。
+	ListRecent(ctx context.Context, limit int) ([]Session, error)
 }

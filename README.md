@@ -59,6 +59,17 @@ GopherAI 是一个 Go + Vue 的 AI 应用示例，后端基于 Gin，前端基�
 | `[ragModelConfig]` | RAG 使用的模型名、文档目录、OpenAI 兼容 Base URL 和向量维度 |
 | `[voiceServiceConfig]` | 百度 TTS API Key 和 Secret Key |
 | `[aiModelConfig]` | 通用 AI API Key 配置 |
+| `[chatReplayConfig]` | 会话历史回放：启动预热最近 N 个活跃会话、默认模型类型 |
+
+`[chatReplayConfig]` 示例：
+
+```toml
+[chatReplayConfig]
+sessionLimit = 50          # 启动时预热的最近活跃会话数（全局）
+defaultModelType = "1"     # 启动预热与查询历史时的默认模型类型
+```
+
+`sessionLimit` 或 `defaultModelType` 未配置时，默认分别为 `50` 和 `"1"`。
 
 OpenAI 兼容普通对话模型还会读取环境变量：
 
@@ -142,7 +153,7 @@ go run ./cmd/server
 2. 连接 MySQL 并执行 GORM AutoMigrate，构建用户/会话/消息仓储。
 3. 连接 Redis，构建验证码存储与向量索引存储。
 4. 构建 RAG 引擎与 AI 模型工厂，连接 RabbitMQ 并创建消息发布器（作为会话消息的持久化 Sink）。
-5. 构建会话领域管理器，并从数据库回放历史消息重建内存会话上下文（`persist=false`，不重复落库）。
+5. 构建会话领域管理器，并按策略 B 回放最近 N 个活跃会话到内存（`persist=false`，不重复落库）；其余会话在访问时由应用层按需懒加载。
 6. 启动 `Message` 队列消费者，将队列消息通过仓储落库。
 7. 装配应用服务、接口处理器与路由，在独立 goroutine 中通过 `http.Server` 监听 `[mainConfig]` 地址端口。
 

@@ -1,6 +1,6 @@
 // Package chat 是会话应用服务：编排会话创建、消息收发、流式对话与历史查询等用例。
 //
-// 它依赖领域会话管理器（chat.Manager）与会话仓储端口（chat.SessionRepository），
+// 它依赖领域会话管理器（chat.Manager）与会话/消息仓储端口，
 // 由 bootstrap 注入，自身不感知模型 SDK 与持久化细节。
 package chat
 
@@ -33,13 +33,34 @@ type MessageView struct {
 
 // Service 会话应用服务。
 type Service struct {
-	manager     *domainchat.Manager
+	// manager 领域会话管理器，维护内存中的 Conversation 聚合。
+	manager *domainchat.Manager
+	// sessionRepo 会话持久化端口，用于创建与列表查询。
 	sessionRepo domainchat.SessionRepository
+	// messageRepo 消息持久化端口，用于冷会话懒加载历史。
+	messageRepo domainchat.MessageRepository
+	// defaultModelType 查历史等无需用户指定模型时的默认模型类型（来自 chatReplayConfig）。
+	defaultModelType string
 }
 
 // NewService 创建会话应用服务。
-func NewService(manager *domainchat.Manager, sessionRepo domainchat.SessionRepository) *Service {
-	return &Service{manager: manager, sessionRepo: sessionRepo}
+//
+// defaultModelType 为空时回退为 "1"（OpenAI 兼容模型）。
+func NewService(
+	manager *domainchat.Manager,
+	sessionRepo domainchat.SessionRepository,
+	messageRepo domainchat.MessageRepository,
+	defaultModelType string,
+) *Service {
+	if defaultModelType == "" {
+		defaultModelType = "1"
+	}
+	return &Service{
+		manager:          manager,
+		sessionRepo:      sessionRepo,
+		messageRepo:      messageRepo,
+		defaultModelType: defaultModelType,
+	}
 }
 
 // modelParams 构建创建模型所需的参数。当前仅需账号编号（RAG/MCP 依赖）。
@@ -93,7 +114,12 @@ func (s *Service) CreateStreamSession(ctx context.Context, accountNo, question s
 }
 
 // StreamToSession 向已有会话发送消息并以流式方式产出 AI 回复。
+// 发送前先 ensureSessionLoaded，确保冷会话的历史上下文已从 DB 加载到内存。
 func (s *Service) StreamToSession(ctx context.Context, accountNo, sessionID, question, modelType string, onChunk func(chunk string)) code.Code {
+	if err := s.ensureSessionLoaded(ctx, accountNo, sessionID, modelType); err != nil {
+		return code.CodeServerBusy
+	}
+
 	conv, err := s.manager.GetOrCreate(ctx, accountNo, sessionID, modelType, modelParams(accountNo))
 	if err != nil {
 		logger.Error("StreamToSession GetOrCreate failed", "err", err)
@@ -107,7 +133,12 @@ func (s *Service) StreamToSession(ctx context.Context, accountNo, sessionID, que
 }
 
 // ChatSend 向已有会话发送单轮消息并返回完整 AI 回复。
+// 发送前先 ensureSessionLoaded，确保 AI 生成时能拿到完整会话历史。
 func (s *Service) ChatSend(ctx context.Context, accountNo, sessionID, question, modelType string) (AIResult, code.Code) {
+	if err := s.ensureSessionLoaded(ctx, accountNo, sessionID, modelType); err != nil {
+		return AIResult{}, code.CodeServerBusy
+	}
+
 	conv, err := s.manager.GetOrCreate(ctx, accountNo, sessionID, modelType, modelParams(accountNo))
 	if err != nil {
 		logger.Error("ChatSend GetOrCreate failed", "err", err)
@@ -121,12 +152,21 @@ func (s *Service) ChatSend(ctx context.Context, accountNo, sessionID, question, 
 	return AIResult{Content: content}, code.CodeSuccess
 }
 
-// GetChatHistory 获取指定会话当前维护的聊天历史。
+// GetChatHistory 获取指定会话的聊天历史。
+//
+// 冷会话会先通过 ensureSessionLoaded 从 DB 懒加载；加载后仍无 Conversation（空会话）
+// 则返回空列表而非 404，与前端 switchSession 的按需拉取语义一致。
 func (s *Service) GetChatHistory(ctx context.Context, accountNo, sessionID string) ([]MessageView, code.Code) {
+	if err := s.ensureSessionLoaded(ctx, accountNo, sessionID, s.defaultModelType); err != nil {
+		return nil, code.CodeServerBusy
+	}
+
 	conv, exists := s.manager.Get(accountNo, sessionID)
 	if !exists {
-		return nil, code.CodeRecordNotFound
+		// 会话存在但尚无消息，或新创建尚未对话的会话。
+		return []MessageView{}, code.CodeSuccess
 	}
+
 	messages := conv.Messages()
 	history := make([]MessageView, 0, len(messages))
 	for _, msg := range messages {
