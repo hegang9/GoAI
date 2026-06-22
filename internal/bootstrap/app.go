@@ -100,15 +100,25 @@ func New() (*App, error) {
 	vectorStore := redisstore.NewVectorStore(rdb)
 
 	// —— RAG 引擎 + AI 模型工厂 ——
-	ragEngine := raginfra.NewEngine(raginfra.Config{
+	ragEngine, err := raginfra.NewEngine(context.Background(), raginfra.Config{
 		EmbeddingModel: conf.RagEmbeddingModel,
 		BaseURL:        conf.RagBaseUrl,
+		APIKey:         conf.AIModelConfig.APIKey,
 		Dimension:      conf.RagDimension,
+		ChunkSize:      conf.RagChunkSize,
+		ChunkOverlap:   conf.RagChunkOverlap,
+		TopK:           conf.RagTopK,
+		MaxDistance:    conf.RagMaxDistance,
 	}, vectorStore)
+	if err != nil {
+		return nil, fmt.Errorf("init rag engine failed: %w", err)
+	}
 	modelFactory := ai.NewFactory(ai.FactoryConfig{
-		ChatModelName: conf.RagChatModelName,
-		BaseURL:       conf.RagBaseUrl,
-		MCPBaseURL:    mcpBaseURL,
+		ChatModelName:      conf.RagChatModelName,
+		BaseURL:            conf.RagBaseUrl,
+		APIKey:             conf.AIModelConfig.APIKey,
+		MCPBaseURL:         mcpBaseURL,
+		EnableQueryRewrite: conf.RagEnableQueryRewrite,
 	}, ragEngine)
 
 	// —— 消息队列（RabbitMQ）：发布端作为会话消息 Sink，消费端落库 ——

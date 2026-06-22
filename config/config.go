@@ -115,6 +115,17 @@ type RagModelConfig struct {
 	RagBaseUrl string `toml:"baseUrl"`
 	// 向量维度，如 text-embedding-v4 为 1024。
 	RagDimension int `toml:"dimension"`
+	// RagChunkSize 单个文本块的最大字符（rune）数；<=0 时运行时默认 512。
+	RagChunkSize int `toml:"chunkSize"`
+	// RagChunkOverlap 相邻文本块的重叠字符（rune）数，用于维持跨块语义连续性；<0 时运行时默认 64。
+	RagChunkOverlap int `toml:"chunkOverlap"`
+	// RagTopK 检索时返回的最相关文本块数量；<=0 时运行时默认 5。
+	RagTopK int `toml:"topK"`
+	// RagMaxDistance 召回结果允许的最大向量距离（COSINE，越小越相关）；
+	// 距离大于该阈值的块视为不相关被丢弃；<=0 时运行时默认 0.6。
+	RagMaxDistance float64 `toml:"maxDistance"`
+	// RagEnableQueryRewrite 是否在多轮对话中用 LLM 把追问改写为自包含检索 query。
+	RagEnableQueryRewrite bool `toml:"enableQueryRewrite"`
 }
 
 // VoiceServiceConfig 语音服务配置（百度 TTS 文字转语音）。

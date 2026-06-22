@@ -40,6 +40,16 @@ chatModelName = "qwen-turbo"
 docDir = "./docs"
 baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 dimension = 1024
+# 单个文本块最大字符数（rune），过大易超出 embedding 输入上限
+chunkSize = 512
+# 相邻文本块重叠字符数，维持跨块语义连续性
+chunkOverlap = 64
+# 检索返回的最相关文本块数量
+topK = 5
+# 召回结果允许的最大向量距离（COSINE，越小越相关），超出视为不相关
+maxDistance = 0.6
+# 是否在多轮对话中用 LLM 把追问改写为自包含检索 query
+enableQueryRewrite = false
 
 [voiceServiceConfig]
 voiceServiceApiKey = "baiduApiKey"

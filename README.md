@@ -1,6 +1,6 @@
 # GopherAI
 
-GopherAI 是一个 Go + Vue 的 AI 应用示例，后端基于 Gin，前端基于 Vue。当前功能包括用户注册登录、AI 对话、流式对话、RAG 文档上传、图片识别和百度 TTS 语音合成。
+GopherAI 是一个 Go + Vue 的 AI 应用示例，后端基于 Gin，前端基于 Vue。当前功能包括用户注册登录、AI 对话、流式对话、RAG 多文档知识库（支持 md/txt/pdf/docx，分块向量检索）、图片识别和百度 TTS 语音合成。
 
 ## 项目结构
 
@@ -45,7 +45,11 @@ go test ./test/... -v
 
 - `architecture_test.go`：领域层零框架依赖约束
 - `code_test.go` / `hash_test.go` / `id_test.go` / `random_test.go` / `logger_test.go` / `fileutil_test.go`：对应 `pkg/` 工具包测试
-- `storage_test.go`：`internal/infrastructure/storage` 文档存储与路径安全测试
+- `storage_test.go` / `storage_hasdocs_test.go`：`internal/infrastructure/storage` 文档存储、路径安全与多文档判断测试
+- `rag_document_test.go`：RAG 文本分块（含中文/重叠/非法参数）与提示词构造测试
+- `rag_parser_test.go`：RAG 文档解析（txt/md/docx）与解析+分块流程测试
+- `rag_engine_test.go`：RAG 召回结果的距离解析与阈值过滤测试
+- `file_delete_test.go`：RAG 文档列出/批量删除应用服务与按文档删除存储的测试
 
 ## 环境要求
 
@@ -79,7 +83,7 @@ go test ./test/... -v
 | `[rabbitmqConfig]` | RabbitMQ 地址、账号、密码和 vhost |
 | `[emailConfig]` | 注册验证码邮件配置 |
 | `[jwtConfig]` | JWT 过期时间、签发信息和密钥 |
-| `[ragModelConfig]` | RAG 使用的模型名、文档目录、OpenAI 兼容 Base URL 和向量维度 |
+| `[ragModelConfig]` | RAG 使用的模型名、文档目录、OpenAI 兼容 Base URL、向量维度，以及检索增强参数（分块大小/重叠、TopK、距离阈值、是否启用多轮 query 改写） |
 | `[voiceServiceConfig]` | 百度 TTS API Key 和 Secret Key |
 | `[aiModelConfig]` | 通用 AI API Key 配置 |
 | `[chatReplayConfig]` | 会话历史回放：启动预热最近 N 个活跃会话、默认模型类型 |
@@ -93,6 +97,23 @@ defaultModelType = "1"     # 启动预热与查询历史时的默认模型类型
 ```
 
 `sessionLimit` 或 `defaultModelType` 未配置时，默认分别为 `50` 和 `"1"`。
+
+`[ragModelConfig]` 检索增强相关参数示例：
+
+```toml
+[ragModelConfig]
+embeddingModel = "text-embedding-v4"   # 向量嵌入模型
+chatModelName = "qwen-turbo"            # RAG 对话模型
+baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+dimension = 1024                        # 向量维度，需与嵌入模型匹配
+chunkSize = 512                         # 单个文本块最大字符数（<=0 默认 512）
+chunkOverlap = 64                       # 相邻块重叠字符数（<0 默认 64）
+topK = 5                                # 检索返回的最相关块数（<=0 默认 5）
+maxDistance = 0.6                       # COSINE 距离阈值，超出视为不相关（<=0 默认 0.6）
+enableQueryRewrite = false             # 是否用 LLM 把多轮追问改写为自包含检索 query
+```
+
+RAG 嵌入 / 对话模型的 API Key 优先取 `[aiModelConfig]` 的 `apiKey`，为空时回退到环境变量 `OPENAI_API_KEY`。
 
 OpenAI 兼容普通对话模型还会读取环境变量：
 
@@ -254,8 +275,10 @@ npm run serve
 
 ## 注意事项
 
-- RAG 文件上传只允许 `.md` 和 `.txt` 文件。
-- 每次上传 RAG 文件会清理当前用户已有上传文件，并删除旧 Redis 向量索引。
+- RAG 文件上传允许 `.md` / `.txt` / `.pdf` / `.docx` 文件；上传后会按 `chunkSize`/`chunkOverlap` 分块并写入向量索引（PDF 扫描件无法抽取文本，会因内容为空而上传失败）。
+- RAG 已支持多文档知识库：上传为追加，不再清理已有文档；向量索引按账号聚合（`rag_docs:{accountNo}:idx`），单个文档以 `rag_docs:{accountNo}:{storedName}:` 前缀存储，可按文档粒度删除。
+- 检索阶段会按 `topK` 召回并用 `maxDistance` 过滤不相关结果；过滤后为空（或账号无文档）时自动跳过检索增强，走普通对话，避免污染闲聊。
+- `enableQueryRewrite = true` 时，多轮对话会先用 LLM 把追问改写为自包含检索 query，改写失败自动回退到原文。
 - 图片识别依赖服务器上的 ONNX 模型路径 `/root/models/mobilenetv2/mobilenetv2-7.onnx` 和标签文件 `/root/imagenet_classes.txt`。
 - TTS 接口依赖百度智能云语音合成配置。
 - 受保护接口需要请求头 `Authorization: Bearer <token>`；JWT 中间件也兼容 URL 参数 `?token=<token>`。

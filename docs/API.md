@@ -371,7 +371,7 @@ Content-Type: multipart/form-data
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `file` | file | 是 | 仅支持 `.md` 或 `.txt` |
+| `file` | file | 是 | 支持 `.md` / `.txt` / `.pdf` / `.docx` |
 
 成功响应：
 
@@ -381,7 +381,52 @@ Content-Type: multipart/form-data
 }
 ```
 
-说明：上传后会写入本地 `uploads/<account_no>/`，并基于 Redis Stack 创建向量索引。当前实现会先清理该用户旧文件和旧索引。
+说明：上传后会写入本地 `uploads/<account_no>/`，按 `chunkSize`/`chunkOverlap` 分块后基于 Redis Stack 创建向量索引。多文档知识库语义：上传为追加，不再清理已有文档（索引按账号聚合 `rag_docs:{accountNo}:idx`）。
+
+### 列出 RAG 文档
+
+```http
+GET /api/v1/file/list
+Authorization: Bearer <token>
+```
+
+成功响应（`files` 为当前账号已上传文档的存储文件名列表，可直接用于删除接口）：
+
+```json
+{
+  "files": ["file-id-1.md", "file-id-2.pdf"]
+}
+```
+
+### 删除 RAG 文档
+
+```http
+POST /api/v1/file/delete
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+请求体：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `filenames` | string[] | 是 | 待删除文档的存储文件名（上传响应 `file_path` 的 basename），单次最多 50 个 |
+
+```json
+{
+  "filenames": ["file-id-1.md", "file-id-2.pdf"]
+}
+```
+
+成功响应（`deleted` 为实际成功删除的文件名列表）：
+
+```json
+{
+  "deleted": ["file-id-1.md", "file-id-2.pdf"]
+}
+```
+
+说明：会同时删除文件与其向量数据，采用尽力而为策略——部分失败仍返回成功并在 `deleted` 中反映实际结果；全部失败返回 `4001`。文件名会按 basename 归一化并校验，防止路径逃逸。
 
 ## 图片接口
 

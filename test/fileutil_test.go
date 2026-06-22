@@ -57,14 +57,17 @@ func TestValidateDocExt(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
+		name     string
 		filename string
-		wantErr bool
+		wantErr  bool
 	}{
 		{name: "markdown", filename: "readme.md", wantErr: false},
 		{name: "text", filename: "notes.txt", wantErr: false},
 		{name: "uppercase ext", filename: "DOC.MD", wantErr: false},
-		{name: "pdf rejected", filename: "doc.pdf", wantErr: true},
+		{name: "pdf allowed", filename: "doc.pdf", wantErr: false},
+		{name: "docx allowed", filename: "report.docx", wantErr: false},
+		{name: "uppercase docx", filename: "REPORT.DOCX", wantErr: false},
+		{name: "exe rejected", filename: "evil.exe", wantErr: true},
 		{name: "no extension", filename: "README", wantErr: true},
 	}
 

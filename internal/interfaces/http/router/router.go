@@ -76,7 +76,9 @@ func registerImageRoutes(r *gin.RouterGroup, h *controller.Handlers) {
 	r.POST("/recognize", h.RecognizeImage)
 }
 
-// registerFileRoutes 注册知识库文件上传接口。
+// registerFileRoutes 注册知识库文件上传、列出与删除接口。
 func registerFileRoutes(r *gin.RouterGroup, h *controller.Handlers) {
 	r.POST("/upload", h.UploadRagFile)
+	r.GET("/list", h.ListRagFiles)
+	r.POST("/delete", httpx.Handler(h.DeleteRagFiles))
 }

@@ -15,8 +15,12 @@ type FactoryConfig struct {
 	ChatModelName string
 	// BaseURL RAG / MCP 模型对话 API 基础地址。
 	BaseURL string
+	// APIKey RAG / MCP 对话模型 API Key；为空时由具体模型回退到环境变量。
+	APIKey string
 	// MCPBaseURL MCP 服务地址。
 	MCPBaseURL string
+	// EnableQueryRewrite RAG 模型是否启用多轮 query 改写。
+	EnableQueryRewrite bool
 }
 
 // Factory 实现 domain/chat.ModelFactory 端口：按模型类型创建具体模型实现。
@@ -46,7 +50,7 @@ func (f *Factory) Create(ctx context.Context, modelType string, params map[strin
 		if !ok {
 			return nil, fmt.Errorf("RAG model requires account_no")
 		}
-		return NewRAGModel(ctx, accountNo, f.cfg.ChatModelName, f.cfg.BaseURL, f.engine)
+		return NewRAGModel(ctx, accountNo, f.cfg.ChatModelName, f.cfg.BaseURL, f.cfg.APIKey, f.cfg.EnableQueryRewrite, f.engine)
 	case "3":
 		accountNo, ok := params["account_no"].(string)
 		if !ok {

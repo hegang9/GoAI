@@ -69,12 +69,21 @@ func ValidateFile(file *multipart.FileHeader) error {
 	return ValidateDocExt(file.Filename)
 }
 
-// ValidateDocExt 按文件名校验扩展名是否为允许的文本类型（.md / .txt）。
+// allowedDocExts 允许上传并可被 RAG 解析的文档扩展名集合。
+// 与 infrastructure/rag 解析层支持的格式保持一致：纯文本、Markdown、PDF、Word。
+var allowedDocExts = map[string]struct{}{
+	".md":   {},
+	".txt":  {},
+	".pdf":  {},
+	".docx": {},
+}
+
+// ValidateDocExt 按文件名校验扩展名是否为允许的文档类型（.md / .txt / .pdf / .docx）。
 // 以文件名（而非 multipart）为入参，便于应用层在不感知 HTTP 细节的情况下复用。
 func ValidateDocExt(filename string) error {
 	ext := strings.ToLower(filepath.Ext(filename))
-	if ext != ".md" && ext != ".txt" {
-		return fmt.Errorf("文件类型不正确，只允许 .md 或 .txt 文件，当前扩展名: %s", ext)
+	if _, ok := allowedDocExts[ext]; !ok {
+		return fmt.Errorf("文件类型不正确，只允许 .md / .txt / .pdf / .docx 文件，当前扩展名: %s", ext)
 	}
 	return nil
 }

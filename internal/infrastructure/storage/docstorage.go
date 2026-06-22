@@ -39,8 +39,10 @@ func UserDocDir(accountNo string) (string, error) {
 	return dir, nil
 }
 
-// ResolveUserDocFilename 解析指定账号已上传的文档文件名。
-// 业务约定：每个账号仅保留一个文档。
+// ResolveUserDocFilename 解析指定账号已上传的首个文档文件名。
+//
+// 多文档场景下仅返回任意一个文件名，主要用于兼容旧调用；
+// RAG 检索已改为按账号聚合，不再依赖单一文件名。
 func ResolveUserDocFilename(accountNo string) (string, error) {
 	dir, err := UserDocDir(accountNo)
 	if err != nil {
@@ -56,6 +58,25 @@ func ResolveUserDocFilename(accountNo string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no valid file found for account %s", accountNo)
+}
+
+// HasUserDocs 判断指定账号当前是否已存在任意已上传文档。
+// 供 RAG 检索前快速判断是否需要走检索增强，避免对无文档账号空检索。
+func HasUserDocs(accountNo string) bool {
+	dir, err := UserDocDir(accountNo)
+	if err != nil {
+		return false
+	}
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, f := range files {
+		if !f.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 // ListUserDocs 列出指定账号当前已存储的文档文件名。
@@ -123,4 +144,31 @@ func (s *LocalDocStorage) Save(accountNo, storedName string, content io.Reader) 
 // Remove 删除指定本地路径的文件，用于失败回滚。
 func (s *LocalDocStorage) Remove(localPath string) error {
 	return os.Remove(localPath)
+}
+
+// RemoveUserDoc 删除指定账号下名为 storedName 的文档文件（按文档删除）。
+// 校验 storedName 合法并防止路径逃逸；文件不存在时视为成功（幂等）。
+func (s *LocalDocStorage) RemoveUserDoc(accountNo, storedName string) error {
+	dir, err := UserDocDir(accountNo)
+	if err != nil {
+		return err
+	}
+	if storedName == "" || !filepath.IsLocal(storedName) {
+		logger.Warn("RemoveUserDoc invalid stored name", "accountNo", accountNo, "storedName", storedName)
+		return fmt.Errorf("invalid stored name: %q", storedName)
+	}
+	localPath := filepath.Join(dir, storedName)
+	if err := fileutil.ValidatePath(dir, localPath); err != nil {
+		logger.Warn("RemoveUserDoc path escape blocked", "accountNo", accountNo, "storedName", storedName, "err", err)
+		return err
+	}
+	if err := os.Remove(localPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		logger.Error("RemoveUserDoc remove failed", "path", localPath, "err", err)
+		return err
+	}
+	logger.Info("RemoveUserDoc removed", "accountNo", accountNo, "storedName", storedName)
+	return nil
 }
