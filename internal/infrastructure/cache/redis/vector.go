@@ -74,6 +74,7 @@ func (v *VectorStore) InitIndex(ctx context.Context, accountNo string, dimension
 
 	logger.Info("creating vector index", "index", indexName)
 	prefix := v.AccountPrefix(accountNo)
+	// 组装创建索引命令
 	createArgs := []interface{}{
 		"FT.CREATE", indexName,
 		"ON", "HASH",

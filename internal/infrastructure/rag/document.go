@@ -72,7 +72,7 @@ func SplitIntoChunks(text string, chunkSize, overlap int) []Chunk {
 	return chunks
 }
 
-// LoadDocuments 解析磁盘文件、切块并转换为可索引的文档集合。
+// LoadDocuments 解析磁盘文件、切块并转换为可索引的文档集合，将文件转换为Eino能够识别的文档块。
 //
 // 每个 chunk 生成独立 ID（chunk_N）与元数据（source 原始文件名、chunk 序号），
 // 以支持向量级检索与引用溯源。空内容文件会返回错误，避免建立空索引。

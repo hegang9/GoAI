@@ -249,9 +249,12 @@ npm run serve
 
 前端开发服务器默认监听 `8080`。`vue-frontend/vue.config.js` 会把 `/api` 代理到后端 `http://localhost:9090`，并重写为 `/api/v1`。
 
-## 接口文档
+## 设计与接口文档
 
 详见 `docs/API.md`。
+
+- `docs/API.md`：HTTP 接口说明。
+- `docs/Redis RediSearch 向量存储设计.md`：RAG 文档向量在 Redis / RediSearch 中的索引、写入、检索与持久化设计。
 
 ## JSON 控制器约定
 

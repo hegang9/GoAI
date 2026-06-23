@@ -123,6 +123,7 @@ func (e *Engine) Index(ctx context.Context, accountNo, storedName, localPath str
 		Client:    e.vs.Client(),
 		KeyPrefix: e.vs.AccountPrefix(accountNo),
 		BatchSize: 10,
+		// 定义如何把Eino的Document转换为Redis的Hash。
 		DocumentToHashes: func(ctx context.Context, doc *schema.Document) (*redisIndexer.Hashes, error) {
 			source := ""
 			if s, ok := doc.MetaData["source"].(string); ok {
@@ -209,12 +210,14 @@ func (e *Engine) Retrieve(ctx context.Context, accountNo, query string) (prompt 
 		return "", false, fmt.Errorf("failed to create retriever: %w", err)
 	}
 
+	// 真正执行检索
 	docs, err := rtr.Retrieve(ctx, query)
 	if err != nil {
 		return "", false, fmt.Errorf("failed to retrieve documents: %w", err)
 	}
 
 	// 按距离阈值过滤不相关结果（RAG 路由的基础：过滤后为空则不注入上下文）。
+	// 这里用的是cosine距离，距离越小越相关。
 	relevant := FilterByDistance(docs, e.cfg.MaxDistance)
 	if len(relevant) == 0 {
 		logger.Info("Retrieve no relevant docs", "accountNo", accountNo, "retrieved", len(docs))
