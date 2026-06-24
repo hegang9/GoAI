@@ -11,11 +11,15 @@ import (
 
 // FactoryConfig 描述模型工厂创建各类模型所需的配置。
 type FactoryConfig struct {
+	// OpenAIModelName 普通 OpenAI 兼容模型名称。
+	OpenAIModelName string
+	// OpenAIBaseURL 普通 OpenAI 兼容模型 API 基础地址。
+	OpenAIBaseURL string
 	// ChatModelName RAG / MCP 模型使用的对话模型名称。
 	ChatModelName string
 	// BaseURL RAG / MCP 模型对话 API 基础地址。
 	BaseURL string
-	// APIKey RAG / MCP 对话模型 API Key；为空时由具体模型回退到环境变量。
+	// APIKey 模型 API Key，来自统一配置。
 	APIKey string
 	// MCPBaseURL MCP 服务地址。
 	MCPBaseURL string
@@ -44,7 +48,7 @@ var _ chat.ModelFactory = (*Factory)(nil)
 func (f *Factory) Create(ctx context.Context, modelType string, params map[string]any) (chat.Model, error) {
 	switch modelType {
 	case "1":
-		return NewOpenAIModel(ctx)
+		return NewOpenAIModel(ctx, f.cfg.OpenAIModelName, f.cfg.OpenAIBaseURL, f.cfg.APIKey)
 	case "2":
 		accountNo, ok := params["account_no"].(string)
 		if !ok {
@@ -56,7 +60,7 @@ func (f *Factory) Create(ctx context.Context, modelType string, params map[strin
 		if !ok {
 			return nil, fmt.Errorf("MCP model requires account_no")
 		}
-		return NewMCPModel(ctx, accountNo, f.cfg.ChatModelName, f.cfg.BaseURL, f.cfg.MCPBaseURL)
+		return NewMCPModel(ctx, accountNo, f.cfg.ChatModelName, f.cfg.BaseURL, f.cfg.APIKey, f.cfg.MCPBaseURL)
 	case "4":
 		baseURL, _ := params["baseURL"].(string)
 		modelName, ok := params["modelName"].(string)

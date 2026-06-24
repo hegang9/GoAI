@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"GopherAI/internal/domain/chat"
@@ -30,16 +29,12 @@ type RAGModel struct {
 
 // NewRAGModel 创建 RAG 模型实例。
 //
-// apiKey 为空时回退到环境变量 OPENAI_API_KEY；enableRewrite 控制是否启用多轮 query 改写。
+// apiKey 来自统一配置；enableRewrite 控制是否启用多轮 query 改写。
 func NewRAGModel(ctx context.Context, accountNo, modelName, baseURL, apiKey string, enableRewrite bool, engine *raginfra.Engine) (*RAGModel, error) {
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("OPENAI_API_KEY")
-	}
 	llm, err := openaiext.NewChatModel(ctx, &openaiext.ChatModelConfig{
 		BaseURL: baseURL,
 		Model:   modelName,
-		APIKey:  key,
+		APIKey:  apiKey,
 	})
 	if err != nil {
 		logger.Error("NewRAGModel failed", "accountNo", accountNo, "err", err)

@@ -8,17 +8,17 @@ authcode = "your authcode "
 email = "your qq email"
 
 [redisConfig]
-host = "192.169.71.109"
+host = "192.168.71.109"
 port = 6379
-password = ""
+password = "hg200512hg"
 db = 0
 
 [mysqlConfig]
-host = "192.169.71.109"
+host = "192.168.71.109"
 port = 3306
-user = "hegang"
+user = "root"
 password = "hg200512hg"
-databaseName = "GopherAI"
+databaseName = "lab"
 charset = "utf8mb4"
 
 [jwtConfig]
@@ -28,10 +28,10 @@ subject = "GopherAI"
 key = "GopherAI-v1"
 
 [rabbitmqConfig]
-host = "rabbitmq"
+host = "192.168.71.109"
 port = 5672
-username = "root"
-password = "123456"
+username = "lab"
+password = "hg200512hg"
 vhost = "/"
 
 [ragModelConfig]
@@ -56,6 +56,8 @@ voiceServiceApiKey = "baiduApiKey"
 voiceServiceSecretKey = "baiduSecretKey"
 
 [aiModelConfig]
+modelName = "qwen-turbo"
+baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 apiKey = "your-api-key"
 
 [chatReplayConfig]

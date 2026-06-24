@@ -138,6 +138,10 @@ type VoiceServiceConfig struct {
 
 // AIModelConfig AI 模型通用配置。
 type AIModelConfig struct {
+	// 普通 OpenAI 兼容对话模型名称。
+	AIModelName string `toml:"modelName"`
+	// 普通 OpenAI 兼容对话 API 基础 URL。
+	AIBaseURL string `toml:"baseUrl"`
 	// AI 服务 API Key。
 	APIKey string `toml:"apiKey"`
 }

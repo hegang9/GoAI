@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"GopherAI/internal/domain/chat"
@@ -19,16 +18,12 @@ type OpenAIModel struct {
 	llm einomodel.ToolCallingChatModel
 }
 
-// NewOpenAIModel 创建 OpenAI 兼容模型实例，连接配置从环境变量读取。
-func NewOpenAIModel(ctx context.Context) (*OpenAIModel, error) {
-	key := os.Getenv("OPENAI_API_KEY")
-	modelName := os.Getenv("OPENAI_MODEL_NAME")
-	baseURL := os.Getenv("OPENAI_BASE_URL")
-
+// NewOpenAIModel 创建 OpenAI 兼容模型实例，连接配置由统一配置注入。
+func NewOpenAIModel(ctx context.Context, modelName, baseURL, apiKey string) (*OpenAIModel, error) {
 	llm, err := openaiext.NewChatModel(ctx, &openaiext.ChatModelConfig{
 		BaseURL: baseURL,
 		Model:   modelName,
-		APIKey:  key,
+		APIKey:  apiKey,
 	})
 	if err != nil {
 		logger.Error("NewOpenAIModel failed", "err", err)

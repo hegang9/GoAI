@@ -1,3 +1,4 @@
+# 消息回放演进
 ## 已完成
 
 - [x] replayHistory 回放历史消息从全量回放改为按 session 懒加载 / 限制最近活跃会话回放（策略 B：启动预热最近 N 会话 + 运行时 `ensureSessionLoaded` 懒加载）
@@ -41,3 +42,11 @@
 - **不采用**「每个 session 单独一张 message 表」：表数量爆炸、`ListRecent` 难以实现、GORM/运维成本高
 - 单表瓶颈主要是 **行数过多**，优先索引 → 分区 → 归档 → 分库分表
 - 懒加载读路径核心 SQL：`WHERE account_no=? AND session_id=? ORDER BY created_at, id`
+
+
+--- 
+
+# 模型选择演进
+- [ ] 目前普通对话/MCP/RAG三种不同路径由用户手动选择，需要改为在LLM Router中先让模型做一次轻量分类，输出结构化结果，在根据结构化结果调用对应模型。
+
+- [ ] MCP 模型启动或首次使用时调用 MCP Server 的 `ListTools`，动态获取工具名、描述与参数 schema，并拼入工具选择 prompt，避免客户端硬编码工具列表与服务端实际工具定义不一致。

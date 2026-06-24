@@ -106,7 +106,7 @@ enableQueryRewrite = false
 - `maxDistance`：COSINE 距离阈值，距离越小越相关；大于阈值的结果会被丢弃，非法值运行时回退到 0.6。
 - `enableQueryRewrite`：是否在多轮对话中用 LLM 改写检索 query。
 
-API Key 优先取配置中的 `AIModelConfig.APIKey`，为空时回退到环境变量 `OPENAI_API_KEY`。
+API Key 统一取配置中的 `AIModelConfig.APIKey`，不再从系统环境变量兜底读取。
 
 ## Redis 数据模型
 

@@ -62,7 +62,7 @@ AI 对话接口通过 `modelType` 选择模型：
 
 | modelType | 模型 |
 | --- | --- |
-| `1` | OpenAI 兼容普通对话模型，读取 `OPENAI_API_KEY`、`OPENAI_MODEL_NAME`、`OPENAI_BASE_URL` |
+| `1` | OpenAI 兼容普通对话模型，读取 `[aiModelConfig]` 中的 `modelName`、`baseUrl`、`apiKey` |
 | `2` | 阿里百炼 RAG 模型，使用上传文档和 Redis Stack 向量索引 |
 | `3` | MCP 模型，默认连接 `http://localhost:8081/mcp` |
 | `4` | Ollama 模型，代码已预留，当前业务接口未传入 `baseURL` 和 `modelName` |

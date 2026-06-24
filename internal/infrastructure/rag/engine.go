@@ -3,7 +3,6 @@ package rag
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 
 	domainrag "GopherAI/internal/domain/rag"
@@ -30,7 +29,7 @@ type Config struct {
 	EmbeddingModel string
 	// BaseURL 嵌入/对话 API 基础地址。
 	BaseURL string
-	// APIKey 嵌入 API Key；为空时回退到环境变量 OPENAI_API_KEY。
+	// APIKey 嵌入 API Key，由统一配置注入。
 	APIKey string
 	// Dimension 向量维度。
 	Dimension int
@@ -93,15 +92,11 @@ func normalizeConfig(cfg Config) Config {
 // 编译期断言：Engine 必须满足领域索引端口。
 var _ domainrag.Indexer = (*Engine)(nil)
 
-// newEmbedder 创建向量生成器；API Key 优先取配置，回退到环境变量。
+// newEmbedder 创建向量生成器；API Key 由统一配置注入。
 func newEmbedder(ctx context.Context, cfg Config) (embedding.Embedder, error) {
-	apiKey := cfg.APIKey
-	if apiKey == "" {
-		apiKey = os.Getenv("OPENAI_API_KEY")
-	}
 	emb, err := embeddingArk.NewEmbedder(ctx, &embeddingArk.EmbeddingConfig{
 		BaseURL: cfg.BaseURL,
-		APIKey:  apiKey,
+		APIKey:  cfg.APIKey,
 		Model:   cfg.EmbeddingModel,
 	})
 	if err != nil {

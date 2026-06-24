@@ -114,6 +114,8 @@ func New() (*App, error) {
 		return nil, fmt.Errorf("init rag engine failed: %w", err)
 	}
 	modelFactory := ai.NewFactory(ai.FactoryConfig{
+		OpenAIModelName:    conf.AIModelName,
+		OpenAIBaseURL:      conf.AIBaseURL,
 		ChatModelName:      conf.RagChatModelName,
 		BaseURL:            conf.RagBaseUrl,
 		APIKey:             conf.AIModelConfig.APIKey,

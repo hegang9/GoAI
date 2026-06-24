@@ -1,0 +1,28 @@
+﻿{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "vue-frontend: serve",
+      "type": "npm",
+      "script": "serve",
+      "path": "vue-frontend",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "custom",
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "(App running at:|Compiled successfully)"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "frontend"
+      }
+    }
+  ]
+}

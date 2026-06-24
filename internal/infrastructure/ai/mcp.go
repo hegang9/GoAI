@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"GopherAI/internal/domain/chat"
@@ -35,12 +34,11 @@ type aiToolCall struct {
 }
 
 // NewMCPModel 创建 MCP 模型实例。
-func NewMCPModel(ctx context.Context, accountNo, modelName, baseURL, mcpBaseURL string) (*MCPModel, error) {
-	key := os.Getenv("OPENAI_API_KEY")
+func NewMCPModel(ctx context.Context, accountNo, modelName, baseURL, apiKey, mcpBaseURL string) (*MCPModel, error) {
 	llm, err := openaiext.NewChatModel(ctx, &openaiext.ChatModelConfig{
 		BaseURL: baseURL,
 		Model:   modelName,
-		APIKey:  key,
+		APIKey:  apiKey,
 	})
 	if err != nil {
 		logger.Error("NewMCPModel failed", "accountNo", accountNo, "err", err)

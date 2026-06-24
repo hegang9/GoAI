@@ -67,9 +67,24 @@ go test ./test/... -v
 | 文件 | 作用 |
 | --- | --- |
 | `.vscode/settings.json` | Go（gofmt + gopls + staticcheck）、Vue/ESLint、保存时格式化与 import 整理、文件排除规则 |
+| `.vscode/launch.json` | 一键调试：后端（Go/Delve）、前端（Chrome + dev server）、全栈复合启动、可选 MCP 服务 |
+| `.vscode/tasks.json` | 前端 `npm run serve` 后台任务，供 `launch.json` 的 `preLaunchTask` 使用 |
 | `.vscode/extensions.json` | 推荐扩展：Go、Volar、ESLint、Prettier、TOML 等 |
 
 首次打开项目时，按提示安装推荐扩展即可。个人偏好（主题、翻译、Copilot 等）请保留在用户级 `settings.json`，不要写入工作区配置。
+
+### 一键调试（VS Code / Cursor）
+
+在「运行和调试」面板选择配置后按 F5：
+
+| 配置名 | 说明 |
+| --- | --- |
+| `GopherAI: 后端` | 以 Delve 调试 `cmd/server`，工作目录为项目根（读取 `config/config.toml`），`LOG_LEVEL=debug` |
+| `GopherAI: 前端` | 先启动 `vue-frontend` dev server，再打开 Chrome 调试 `http://localhost:8080` |
+| `GopherAI: 全栈调试` | 同时启动后端与前端（前端代理 `/api` → `localhost:9090`） |
+| `GopherAI: MCP 服务` | 独立调试 `cmd/mcp` 天气工具服务（`:8081`） |
+
+前置条件：已安装 [Go 扩展](https://marketplace.visualstudio.com/items?itemName=golang.go) 与 Delve；前端调试需本机 Chrome。`vue-frontend` 依赖通过 `npm install` 安装。
 
 ## 配置说明
 
@@ -85,7 +100,7 @@ go test ./test/... -v
 | `[jwtConfig]` | JWT 过期时间、签发信息和密钥 |
 | `[ragModelConfig]` | RAG 使用的模型名、文档目录、OpenAI 兼容 Base URL、向量维度，以及检索增强参数（分块大小/重叠、TopK、距离阈值、是否启用多轮 query 改写） |
 | `[voiceServiceConfig]` | 百度 TTS API Key 和 Secret Key |
-| `[aiModelConfig]` | 通用 AI API Key 配置 |
+| `[aiModelConfig]` | 普通 OpenAI 兼容模型名、Base URL 与通用 AI API Key 配置 |
 | `[chatReplayConfig]` | 会话历史回放：启动预热最近 N 个活跃会话、默认模型类型 |
 
 `[chatReplayConfig]` 示例：
@@ -113,15 +128,16 @@ maxDistance = 0.6                       # COSINE 距离阈值，超出视为不�
 enableQueryRewrite = false             # 是否用 LLM 把多轮追问改写为自包含检索 query
 ```
 
-RAG 嵌入 / 对话模型的 API Key 优先取 `[aiModelConfig]` 的 `apiKey`，为空时回退到环境变量 `OPENAI_API_KEY`。
+`[aiModelConfig]` 统一配置普通 OpenAI 兼容对话模型，并为 RAG 嵌入 / 对话模型和 MCP 对话模型提供 API Key：
 
-OpenAI 兼容普通对话模型还会读取环境变量：
-
-```bash
-export OPENAI_API_KEY="your-api-key"
-export OPENAI_MODEL_NAME="your-model-name"
-export OPENAI_BASE_URL="https://api.openai.com/v1"
+```toml
+[aiModelConfig]
+modelName = "qwen-turbo"
+baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+apiKey = "your-api-key"
 ```
+
+模型连接信息不再从系统环境变量兜底读取；后端启动前请在 `config/config.toml` 中配置完整。
 
 日志级别通过 `LOG_LEVEL` 控制，可选 `debug`、`info`、`warn`、`error`，默认 `info`。
 
@@ -243,7 +259,7 @@ go run ./cmd/server
 
 ```bash
 cd vue-frontend
-npm install
+npm install    # 安装依赖（node_modules 已加入 .gitignore，勿提交到 Git）
 npm run serve
 ```
 

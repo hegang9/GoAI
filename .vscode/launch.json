@@ -1,0 +1,48 @@
+﻿{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "GopherAI: 后端",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/server",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "LOG_LEVEL": "debug"
+      }
+    },
+    {
+      "name": "GopherAI: 前端",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:8080",
+      "webRoot": "${workspaceFolder}/vue-frontend/src",
+      "preLaunchTask": "vue-frontend: serve"
+    },
+    {
+      "name": "GopherAI: MCP 服务",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/mcp",
+      "cwd": "${workspaceFolder}/cmd/mcp",
+      "args": [
+        "--mode",
+        "server",
+        "--http-addr",
+        ":8081"
+      ]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "GopherAI: 全栈调试",
+      "configurations": [
+        "GopherAI: 后端",
+        "GopherAI: 前端"
+      ],
+      "stopAll": true
+    }
+  ]
+}
