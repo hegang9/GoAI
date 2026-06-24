@@ -45,7 +45,7 @@ func Connect(cfg Config) (*Client, error) {
 		_ = conn.Close()
 		return nil, fmt.Errorf("rabbitmq open channel failed: %w", err)
 	}
-	// 声明队列（幂等）。参数：队列名、非持久化、非排他、非自动删除、无额外参数。
+	// 声明队列（幂等）。参数：队列名、非持久化（重启即丢失）、非排他（非独占，其他连接也可访问）、非自动删除、无额外参数。
 	if _, err := channel.QueueDeclare(cfg.Queue, false, false, false, false, nil); err != nil {
 		_ = channel.Close()
 		_ = conn.Close()
@@ -56,6 +56,7 @@ func Connect(cfg Config) (*Client, error) {
 
 // Publish 向队列发送一条消息（默认交换机，路由键即队列名）。
 func (c *Client) Publish(body []byte) error {
+	// 发布消息（默认交换机，路由键即队列名）。参数：交换机名（为空代表使用默认交换机）、路由键（因为用的是默认交换机，所以这里就是目标队列名）、是否持久化（如果消息无法路由到队列，不要求将消息返还给生产者）、是否立即返回（基本已废弃，通常传false）、消息属性、消息体。
 	return c.channel.Publish("", c.queue, false, false, amqp.Publishing{
 		ContentType: "text/plain",
 		Body:        body,
@@ -66,6 +67,7 @@ func (c *Client) Publish(body []byte) error {
 //
 // 注意：当前使用 autoAck=true（消息一旦投递即确认）。因为消息最终会持久化到 MySQL，
 // 即便偶发丢失也可从 DB 恢复；对可靠性有更高要求时可改为手动 ACK。
+// TODO：改为手动ACK，增强可靠性，防止偶发丢失导致DB数据缺失
 func (c *Client) Consume(handle func(body []byte) error) {
 	msgs, err := c.channel.Consume(c.queue, "", true, false, false, false, nil)
 	if err != nil {
