@@ -1,2 +1,3 @@
 # 前端依赖（通过 npm install 安装，勿提交）
 node_modules/
+docker-compose.yml

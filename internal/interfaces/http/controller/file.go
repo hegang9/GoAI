@@ -37,7 +37,7 @@ func (h *Handlers) UploadRagFile(c *gin.Context) {
 	defer src.Close()
 
 	filePath, errCode := h.File.UploadRagFile(c.Request.Context(), accountNo, uploaded.Filename, src)
-	httpx.JSON(c, dto.UploadFileResponse{FilePath: filePath}, errCode)
+	httpx.JSON(c, &dto.UploadFileResponse{FilePath: filePath}, errCode)
 }
 
 // ListRagFiles 返回当前登录账号已上传的知识库文档文件名列表。
@@ -55,7 +55,7 @@ func (h *Handlers) ListRagFiles(c *gin.Context) {
 	if files == nil {
 		files = []string{}
 	}
-	httpx.JSON(c, dto.ListRagFilesResponse{Files: files}, errCode)
+	httpx.JSON(c, &dto.ListRagFilesResponse{Files: files}, errCode)
 }
 
 // DeleteRagFiles 批量删除当前登录账号的若干知识库文档及其向量数据。
@@ -69,5 +69,5 @@ func (h *Handlers) DeleteRagFiles(c *gin.Context, req dto.DeleteRagFilesRequest)
 	}
 
 	deleted, errCode := h.File.DeleteRagFiles(c.Request.Context(), accountNo, req.Filenames)
-	httpx.JSON(c, dto.DeleteRagFilesResponse{Deleted: deleted}, errCode)
+	httpx.JSON(c, &dto.DeleteRagFilesResponse{Deleted: deleted}, errCode)
 }

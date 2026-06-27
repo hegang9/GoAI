@@ -14,14 +14,14 @@ import (
 func (h *Handlers) GetUserSessions(c *gin.Context) {
 	accountNo := c.GetString("accountNo")
 	sessions, errCode := h.Chat.GetUserSessions(c.Request.Context(), accountNo)
-	httpx.JSON(c, dto.GetUserSessionsResponse{Sessions: toSessionInfoDTO(sessions)}, errCode)
+	httpx.JSON(c, &dto.GetUserSessionsResponse{Sessions: toSessionInfoDTO(sessions)}, errCode)
 }
 
 // CreateSessionAndSendMessage 创建新会话并返回首条 AI 回复。
 func (h *Handlers) CreateSessionAndSendMessage(c *gin.Context, req dto.CreateSessionRequest) {
 	accountNo := c.GetString("accountNo")
 	result, errCode := h.Chat.CreateSessionAndSend(c.Request.Context(), accountNo, req.UserQuestion, req.ModelType)
-	httpx.JSON(c, dto.CreateSessionResponse{AiInformation: result.Content, SessionID: result.SessionID}, errCode)
+	httpx.JSON(c, &dto.CreateSessionResponse{AiInformation: result.Content, SessionID: result.SessionID}, errCode)
 }
 
 // CreateStreamSessionAndSendMessage 创建新会话并通过 SSE 推送流式回复。
@@ -57,7 +57,7 @@ func (h *Handlers) CreateStreamSessionAndSendMessage(c *gin.Context, req dto.Cre
 func (h *Handlers) ChatSend(c *gin.Context, req dto.ChatSendRequest) {
 	accountNo := c.GetString("accountNo")
 	result, errCode := h.Chat.ChatSend(c.Request.Context(), accountNo, req.SessionID, req.UserQuestion, req.ModelType)
-	httpx.JSON(c, dto.ChatSendResponse{AiInformation: result.Content}, errCode)
+	httpx.JSON(c, &dto.ChatSendResponse{AiInformation: result.Content}, errCode)
 }
 
 // ChatStreamSend 在已有会话中发送消息并通过 SSE 推送流式回复。
@@ -83,7 +83,7 @@ func (h *Handlers) ChatStreamSend(c *gin.Context, req dto.ChatSendRequest) {
 func (h *Handlers) ChatHistory(c *gin.Context, req dto.ChatHistoryRequest) {
 	accountNo := c.GetString("accountNo")
 	history, errCode := h.Chat.GetChatHistory(c.Request.Context(), accountNo, req.SessionID)
-	httpx.JSON(c, dto.ChatHistoryResponse{History: toHistoryDTO(history)}, errCode)
+	httpx.JSON(c, &dto.ChatHistoryResponse{History: toHistoryDTO(history)}, errCode)
 }
 
 // toSessionInfoDTO 将会话视图列表映射为 DTO。

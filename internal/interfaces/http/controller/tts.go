@@ -15,7 +15,7 @@ func (h *Handlers) CreateTTSTask(c *gin.Context, req dto.TTSRequest) {
 		return
 	}
 	result, errCode := h.TTS.CreateTask(c.Request.Context(), req.Text)
-	httpx.JSON(c, dto.TTSResponse{TaskID: result.TaskID}, errCode)
+	httpx.JSON(c, &dto.TTSResponse{TaskID: result.TaskID}, errCode)
 }
 
 // QueryTTSTask 查询文本转语音任务状态。
@@ -26,7 +26,7 @@ func (h *Handlers) QueryTTSTask(c *gin.Context) {
 		return
 	}
 	result, errCode := h.TTS.QueryTask(c.Request.Context(), taskID)
-	httpx.JSON(c, dto.QueryTTSResponse{
+	httpx.JSON(c, &dto.QueryTTSResponse{
 		TaskID:     result.TaskID,
 		TaskStatus: result.Status,
 		TaskResult: result.SpeechURL,

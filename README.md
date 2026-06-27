@@ -277,10 +277,28 @@ npm run serve
 为统一 `application/json` 接口的请求绑定与响应处理，项目在 `internal/interfaces/http/httpx` 中提供了通用辅助函数：
 
 - `httpx.BindJSON[T]`：统一完成 JSON 请求体绑定与参数校验，参数错误时直接返回标准错误响应。
-- `httpx.JSON`：统一输出业务成功或失败响应，减少各控制器重复拼装返回值。
+- `httpx.JSON`：统一输出业务成功或失败响应，减少各控制器重复拼装返回值。成功与失败走**同一套信封构建逻辑**（`dto.NewResponse`）：成功时 `data` 为业务数据对象，失败时无业务数据故 `data` 为 `null`。
 - `httpx.Handler(...)`：底层 JSON 绑定包装实现，供 `router` 注册路由时使用，例如 `r.POST(..., httpx.Handler(h.Login))`。
 
 采用这一约定后，控制器处理函数可以直接声明为接收类型化 DTO，例如 `func(c *gin.Context, req dto.LoginRequest)`，无需在每个处理函数里重复编写 `ShouldBindJSON` 和参数错误响应逻辑。控制器统一实现为可注入的 `Handlers` 结构体方法，依赖通过 `bootstrap` 注入。
+
+### 统一响应信封
+
+所有 HTTP 接口均以 `dto.Response` 信封返回，业务数据统一放入 `data` 字段（不再将状态字段平铺进各业务 DTO）：
+
+```go
+// internal/interfaces/http/dto/common.go
+type Response struct {
+    StatusCode code.Code `json:"status_code"`           // 业务状态码（成功为 1000）
+    StatusMsg  string    `json:"status_msg,omitempty"`  // 状态码对应文案
+    Data       any       `json:"data"`                  // 业务数据；失败或无数据时为 null
+}
+```
+
+- 成功：`{ "status_code": 1000, "status_msg": "success", "data": { "token": "xxx" } }`
+- 失败：`{ "status_code": 2004, "status_msg": "邮箱或密码错误", "data": null }`
+
+控制器只需构造**纯业务数据 DTO**（不再内嵌 `dto.Response`），由 `httpx.JSON` 包装进信封，例如 `httpx.JSON(c, &dto.LoginResponse{Token: token}, errCode)`；无业务数据的接口（如验证码）直接传 `nil`。`data` 字段固定存在（无 `omitempty`），前端可稳定基于 `status_code === 1000` 判断成功并从 `data` 取业务数据。
 
 ## SSE 流式约定
 

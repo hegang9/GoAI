@@ -18,10 +18,7 @@ import (
 func BindJSON[T any](c *gin.Context) (T, error) {
 	var req T
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(code.CodeInvalidParams.HTTPStatus(), dto.Response{
-			StatusCode: code.CodeInvalidParams,
-			StatusMsg:  code.CodeInvalidParams.Msg(),
-		})
+		c.AbortWithStatusJSON(code.CodeInvalidParams.HTTPStatus(), dto.NewResponse(code.CodeInvalidParams, nil))
 		return req, err
 	}
 	return req, nil
@@ -46,14 +43,12 @@ func Handler[T any](fn func(c *gin.Context, req T)) gin.HandlerFunc {
 	}
 }
 
-// JSON 统一业务结果响应：成功返回数据，失败返回错误码与消息。
+// JSON 以统一信封输出业务结果：成功与失败走同一套构建逻辑，
+// 仅业务数据来源不同——成功时 data 为业务数据，失败时无业务数据故 data 为 null。
 func JSON(c *gin.Context, data any, errCode code.Code) {
+	// 错误响应不携带业务数据，统一回填 data 为 null，保证响应结构与成功分支一致。
 	if errCode != code.CodeSuccess {
-		c.JSON(errCode.HTTPStatus(), dto.Response{
-			StatusCode: errCode,
-			StatusMsg:  errCode.Msg(),
-		})
-		return
+		data = nil
 	}
-	c.JSON(errCode.HTTPStatus(), data)
+	c.JSON(errCode.HTTPStatus(), dto.NewResponse(errCode, data))
 }

@@ -6,7 +6,6 @@ type LoginRequest struct {
 }
 
 type LoginResponse struct {
-	Response
 	Token string `json:"token,omitempty"`
 }
 
@@ -17,14 +16,9 @@ type RegisterRequest struct {
 }
 
 type RegisterResponse struct {
-	Response
 	Token string `json:"token,omitempty"`
 }
 
 type CaptchaRequest struct {
 	Email string `json:"email" binding:"required"`
-}
-
-type CaptchaResponse struct {
-	Response
 }

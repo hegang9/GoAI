@@ -19,8 +19,6 @@ import (
 // issuer 为令牌校验端口，由 bootstrap 注入具体实现。
 func JWTAuth(issuer domainuser.TokenIssuer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		res := new(dto.Response)
-
 		var token string
 		authHeader := c.GetHeader("Authorization")
 		// 优先读取标准请求头：Authorization: Bearer <token>
@@ -33,7 +31,7 @@ func JWTAuth(issuer domainuser.TokenIssuer) gin.HandlerFunc {
 
 		if token == "" {
 			logger.Error("token is empty")
-			c.JSON(code.CodeInvalidToken.HTTPStatus(), res.CodeOf(code.CodeInvalidToken))
+			c.JSON(code.CodeInvalidToken.HTTPStatus(), dto.NewResponse(code.CodeInvalidToken, nil))
 			c.Abort()
 			return
 		}
@@ -42,7 +40,7 @@ func JWTAuth(issuer domainuser.TokenIssuer) gin.HandlerFunc {
 		logger.Debug("JWT token received", "token_prefix", token[:min(10, len(token))])
 		accountNo, ok := issuer.Parse(token)
 		if !ok {
-			c.JSON(code.CodeInvalidToken.HTTPStatus(), res.CodeOf(code.CodeInvalidToken))
+			c.JSON(code.CodeInvalidToken.HTTPStatus(), dto.NewResponse(code.CodeInvalidToken, nil))
 			c.Abort()
 			return
 		}

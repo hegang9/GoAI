@@ -11,16 +11,31 @@
 
 ## 通用响应
 
-普通 JSON 接口统一包含业务状态码字段：
+普通 JSON 接口统一以「信封」结构返回，业务数据放入 `data` 字段：
 
 ```json
 {
   "status_code": 1000,
-  "status_msg": "success"
+  "status_msg": "success",
+  "data": { }
 }
 ```
 
-当前部分成功响应只返回业务数据字段，未显式填充 `status_code`；客户端可优先以 HTTP 2xx 和业务字段判断成功。
+- `status_code`：业务状态码，成功为 `1000`。
+- `status_msg`：状态码对应文案。
+- `data`：业务数据对象；失败或无业务数据时为 `null`（字段恒存在，无 `omitempty`）。
+
+失败响应示例：
+
+```json
+{
+  "status_code": 2004,
+  "status_msg": "邮箱或密码错误",
+  "data": null
+}
+```
+
+客户端应以 `status_code === 1000` 判断成功，并从 `data` 读取业务数据。
 
 常见业务码：
 
@@ -84,12 +99,13 @@ Content-Type: application/json
 }
 ```
 
-成功响应：
+成功响应（验证码接口无业务数据，`data` 为 `null`）：
 
 ```json
 {
   "status_code": 1000,
-  "status_msg": "success"
+  "status_msg": "success",
+  "data": null
 }
 ```
 
@@ -116,7 +132,11 @@ Content-Type: application/json
 
 ```json
 {
-  "token": "jwt-token"
+  "status_code": 1000,
+  "status_msg": "success",
+  "data": {
+    "token": "jwt-token"
+  }
 }
 ```
 
@@ -142,7 +162,11 @@ Content-Type: application/json
 
 ```json
 {
-  "token": "jwt-token"
+  "status_code": 1000,
+  "status_msg": "success",
+  "data": {
+    "token": "jwt-token"
+  }
 }
 ```
 
@@ -159,12 +183,16 @@ Authorization: Bearer <token>
 
 ```json
 {
-  "sessions": [
-    {
-      "sessionId": "session-id",
-      "name": "会话标题"
-    }
-  ]
+  "status_code": 1000,
+  "status_msg": "success",
+  "data": {
+    "sessions": [
+      {
+        "sessionId": "session-id",
+        "name": "会话标题"
+      }
+    ]
+  }
 }
 ```
 
@@ -189,8 +217,12 @@ Content-Type: application/json
 
 ```json
 {
-  "Information": "AI 回复内容",
-  "sessionId": "session-id"
+  "status_code": 1000,
+  "status_msg": "success",
+  "data": {
+    "Information": "AI 回复内容",
+    "sessionId": "session-id"
+  }
 }
 ```
 
@@ -216,7 +248,11 @@ Content-Type: application/json
 
 ```json
 {
-  "Information": "AI 回复内容"
+  "status_code": 1000,
+  "status_msg": "success",
+  "data": {
+    "Information": "AI 回复内容"
+  }
 }
 ```
 
@@ -240,16 +276,20 @@ Content-Type: application/json
 
 ```json
 {
-  "history": [
-    {
-      "is_user": true,
-      "content": "用户消息"
-    },
-    {
-      "is_user": false,
-      "content": "AI 回复"
-    }
-  ]
+  "status_code": 1000,
+  "status_msg": "success",
+  "data": {
+    "history": [
+      {
+        "is_user": true,
+        "content": "用户消息"
+      },
+      {
+        "is_user": false,
+        "content": "AI 回复"
+      }
+    ]
+  }
 }
 ```
 
@@ -334,7 +374,11 @@ Content-Type: application/json
 
 ```json
 {
-  "task_id": "tts-task-id"
+  "status_code": 1000,
+  "status_msg": "success",
+  "data": {
+    "task_id": "tts-task-id"
+  }
 }
 ```
 
@@ -349,9 +393,13 @@ Authorization: Bearer <token>
 
 ```json
 {
-  "task_id": "tts-task-id",
-  "task_status": "Success",
-  "task_result": "https://speech-url.example.com/audio.mp3"
+  "status_code": 1000,
+  "status_msg": "success",
+  "data": {
+    "task_id": "tts-task-id",
+    "task_status": "Success",
+    "task_result": "https://speech-url.example.com/audio.mp3"
+  }
 }
 ```
 
@@ -377,7 +425,11 @@ Content-Type: multipart/form-data
 
 ```json
 {
-  "file_path": "uploads/account_no/file-id.md"
+  "status_code": 1000,
+  "status_msg": "success",
+  "data": {
+    "file_path": "uploads/account_no/file-id.md"
+  }
 }
 ```
 
@@ -394,7 +446,11 @@ Authorization: Bearer <token>
 
 ```json
 {
-  "files": ["file-id-1.md", "file-id-2.pdf"]
+  "status_code": 1000,
+  "status_msg": "success",
+  "data": {
+    "files": ["file-id-1.md", "file-id-2.pdf"]
+  }
 }
 ```
 
@@ -422,7 +478,11 @@ Content-Type: application/json
 
 ```json
 {
-  "deleted": ["file-id-1.md", "file-id-2.pdf"]
+  "status_code": 1000,
+  "status_msg": "success",
+  "data": {
+    "deleted": ["file-id-1.md", "file-id-2.pdf"]
+  }
 }
 ```
 
@@ -448,7 +508,11 @@ Content-Type: multipart/form-data
 
 ```json
 {
-  "class_name": "tabby cat"
+  "status_code": 1000,
+  "status_msg": "success",
+  "data": {
+    "class_name": "tabby cat"
+  }
 }
 ```
 

@@ -6,23 +6,21 @@ package dto
 
 import "GopherAI/pkg/code"
 
-// Response 通用响应结构，内嵌于各业务响应中。
+// Response 统一响应信封：所有 HTTP 接口均以该结构返回。
+//
+// status_code/status_msg 描述业务结果，data 承载业务数据；
+// 失败或无业务数据时 data 为 null（不使用 omitempty，保证字段恒存在，前端可稳定解析）。
 type Response struct {
 	StatusCode code.Code `json:"status_code"`
 	StatusMsg  string    `json:"status_msg,omitempty"`
+	Data       any       `json:"data"`
 }
 
-// CodeOf 按指定业务状态码填充通用响应结构。
-func (r *Response) CodeOf(c code.Code) Response {
-	if nil == r {
-		r = new(Response)
+// NewResponse 按业务状态码与数据构造统一响应信封，status_msg 自动取状态码对应文案。
+func NewResponse(c code.Code, data any) Response {
+	return Response{
+		StatusCode: c,
+		StatusMsg:  c.Msg(),
+		Data:       data,
 	}
-	r.StatusCode = c
-	r.StatusMsg = c.Msg()
-	return *r
-}
-
-// Success 将通用响应结构设置为成功状态。
-func (r *Response) Success() {
-	r.CodeOf(code.CodeSuccess)
 }

@@ -13,7 +13,6 @@ type History struct {
 }
 
 type GetUserSessionsResponse struct {
-	Response
 	Sessions []SessionInfo `json:"sessions,omitempty"`
 }
 
@@ -23,7 +22,6 @@ type CreateSessionRequest struct {
 }
 
 type CreateSessionResponse struct {
-	Response
 	AiInformation string `json:"Information,omitempty"`
 	SessionID     string `json:"sessionId,omitempty"`
 }
@@ -35,7 +33,6 @@ type ChatSendRequest struct {
 }
 
 type ChatSendResponse struct {
-	Response
 	AiInformation string `json:"Information,omitempty"`
 }
 
@@ -44,6 +41,5 @@ type ChatHistoryRequest struct {
 }
 
 type ChatHistoryResponse struct {
-	Response
 	History []History `json:"history"`
 }

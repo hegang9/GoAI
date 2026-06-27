@@ -37,5 +37,5 @@ func (h *Handlers) RecognizeImage(c *gin.Context) {
 	}
 
 	className, errCode := h.Image.Recognize(buf)
-	httpx.JSON(c, dto.RecognizeImageResponse{ClassName: className}, errCode)
+	httpx.JSON(c, &dto.RecognizeImageResponse{ClassName: className}, errCode)
 }
