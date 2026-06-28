@@ -246,6 +246,9 @@ go run ./cmd/server
   - `cache/redis`：验证码存储与 RAG 向量索引存储。
   - `mq/rabbitmq`：消息发布器（实现 `MessageSink`）与消费落库。
   - `ai`：OpenAI / Ollama / RAG / MCP 模型实现与模型工厂，`schema.go` 负责领域消息与模型消息互转。
+    - MCP 模型（`mcp.go` + `tools.go`）基于 Eino 原生工具调用：用 `flow/agent/react` 的 ReAct Agent 驱动「模型→（产出 `schema.ToolCalls` 则执行工具→结果回灌）→模型」的多轮自动循环，替代旧的「提示词逼模型吐 JSON + 手工解析」做法；工具由 `eino-ext/components/tool/mcp` 适配器从 MCP Server 批量自动转换（`mcp.GetTools`），新增工具时本层零改动。
+    - MCP 客户端采用**懒连接**：构造模型（`NewMCPModel`）时不连接 MCP Server，首次 `Generate`/`Stream` 调用才建立连接、拉取工具并构建 Agent；连接失败不缓存错误状态，下次调用会重试，避免 Server 暂不可用导致模型创建失败。
+  - `rag`：向量生成、文档加载/切块、索引、检索、提示词构造。
   - `rag`：向量生成、文档加载/切块（Eino `document.Transformer` 切分器：非 Markdown 走递归切分、`.md` 走标题感知切分，失败时回退定长滑窗）、索引、检索、提示词构造。
   - `security`：bcrypt 密码哈希与 JWT 签发/解析；`email`/`image`/`tts`/`storage` 为其余适配器。
 - **接口层 `internal/interfaces/http`**：`router`/`controller`/`dto`/`middleware`/`sse`/`httpx`，负责协议绑定与响应。
