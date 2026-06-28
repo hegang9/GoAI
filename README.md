@@ -49,6 +49,7 @@ go test ./test/... -v
 - `rag_document_test.go`：RAG 文本分块（含中文/重叠/非法参数）、Eino 切分器路径（递归切分不断句、Markdown 标题切分）与提示词构造测试
 - `rag_parser_test.go`：RAG 文档解析（txt/md/docx）与解析+切分器分块流程测试
 - `rag_engine_test.go`：RAG 召回结果的距离解析与阈值过滤测试
+- `rag_reranker_test.go`：RAG 精排（reranker）HTTP 客户端的打分排序/截断/降级与最低分阈值过滤测试
 - `file_delete_test.go`：RAG 文档列出/批量删除应用服务与按文档删除存储的测试
 
 ## 环境要求
@@ -98,7 +99,7 @@ go test ./test/... -v
 | `[rabbitmqConfig]` | RabbitMQ 地址、账号、密码和 vhost |
 | `[emailConfig]` | 注册验证码邮件配置 |
 | `[jwtConfig]` | JWT 过期时间、签发信息和密钥 |
-| `[ragModelConfig]` | RAG 使用的模型名、文档目录、OpenAI 兼容 Base URL、向量维度，以及检索增强参数（分块大小/重叠、TopK、距离阈值、是否启用多轮 query 改写） |
+| `[ragModelConfig]` | RAG 使用的模型名、文档目录、OpenAI 兼容 Base URL、向量维度，以及检索增强参数（分块大小/重叠、TopK、距离阈值、是否启用多轮 query 改写、是否启用精排 reranker 及其召回放大/截断/最低分阈值） |
 | `[voiceServiceConfig]` | 百度 TTS API Key 和 Secret Key |
 | `[aiModelConfig]` | 普通 OpenAI 兼容模型名、Base URL 与通用 AI API Key 配置 |
 | `[chatReplayConfig]` | 会话历史回放：启动预热最近 N 个活跃会话、默认模型类型 |
@@ -126,7 +127,15 @@ chunkOverlap = 64                       # 相邻块重叠字符数（<0 默认 6
 topK = 5                                # 检索返回的最相关块数（<=0 默认 5）
 maxDistance = 0.6                       # COSINE 距离阈值，超出视为不相关（<=0 默认 0.6）
 enableQueryRewrite = false             # 是否用 LLM 把多轮追问改写为自包含检索 query
+rerankEnable = false                   # 是否启用精排：召回放大 → 交叉编码重排 → 截断 TopN
+rerankModel = "doubao-rerank"          # 重排模型名称（启用精排时生效）
+rerankBaseUrl = "https://your-rerank-endpoint/rerank"  # 重排服务完整地址（含 path）
+recallTopK = 20                         # 启用精排时的召回候选数（粗排放大，<=0 默认 20）
+rerankTopK = 5                          # 精排后保留的文档数（<=0 时沿用 topK）
+rerankMinScore = 0.0                    # 精排最低相关分阈值（越大越相关），0 表示不过滤
 ```
+
+启用精排后检索变为“**粗排（向量召回放大到 `recallTopK`）→ 精排（reranker 重排打分）→ 截断到 `rerankTopK` →（可选）按 `rerankMinScore` 兜底过滤**”两阶段流程；精排服务调用失败时自动降级为向量排序，RAG 链路不中断。`rerankEnable = false`（默认）时回到纯向量排序的现有行为。注意：`maxDistance` 是向量 **距离**（越小越相关）粗筛阈值，`rerankMinScore` 是精排 **相关分**（越大越相关）阈值，两者语义相反、不可混用。复用 `[aiModelConfig].apiKey` 作为重排服务鉴权 Key。
 
 `[aiModelConfig]` 统一配置普通 OpenAI 兼容对话模型，并为 RAG 嵌入 / 对话模型和 MCP 对话模型提供 API Key：
 
@@ -315,6 +324,7 @@ type Response struct {
 - RAG 文件上传允许 `.md` / `.txt` / `.pdf` / `.docx` 文件；上传后先抽取纯文本，再用 Eino `document.Transformer` 切分器切块并写入向量索引：`.md` 走 Markdown 标题感知切分（保留标题层级到元数据），其余走递归切分（按段落/换行/中英文句末标点等自然边界递归，避免从句中硬断），切分器创建或执行失败时自动回退到原定长滑窗实现。切块结果仍以 `chunk_N` 编号并回填 `source`，与既有索引/检索完全兼容（PDF 扫描件无法抽取文本，会因内容为空而上传失败）。变更切分策略后，建议对存量知识库重新建索引以保持分块一致。
 - RAG 已支持多文档知识库：上传为追加，不再清理已有文档；向量索引按账号聚合（`rag_docs:{accountNo}:idx`），单个文档以 `rag_docs:{accountNo}:{storedName}:` 前缀存储，可按文档粒度删除。
 - 检索阶段会按 `topK` 召回并用 `maxDistance` 过滤不相关结果；过滤后为空（或账号无文档）时自动跳过检索增强，走普通对话，避免污染闲聊。
+- `rerankEnable = true` 时启用两阶段检索：召回放大到 `recallTopK`、距离粗筛后交由 reranker 精排重排、截断到 `rerankTopK`，并可按 `rerankMinScore` 兜底过滤；精排结果的相关分写入文档 `rerank_score` 元数据。精排器未注入或调用失败时自动降级为向量排序，不中断链路。
 - `enableQueryRewrite = true` 时，多轮对话会先用 LLM 把追问改写为自包含检索 query，改写失败自动回退到原文。
 - 图片识别依赖服务器上的 ONNX 模型路径 `/root/models/mobilenetv2/mobilenetv2-7.onnx` 和标签文件 `/root/imagenet_classes.txt`。
 - TTS 接口依赖百度智能云语音合成配置。
