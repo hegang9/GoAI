@@ -126,6 +126,18 @@ type RagModelConfig struct {
 	RagMaxDistance float64 `toml:"maxDistance"`
 	// RagEnableQueryRewrite 是否在多轮对话中用 LLM 把追问改写为自包含检索 query。
 	RagEnableQueryRewrite bool `toml:"enableQueryRewrite"`
+	// RagRerankEnable 是否启用精排（reranker）：召回放大→精排重排→截断 TopN。
+	RagRerankEnable bool `toml:"rerankEnable"`
+	// RagRerankModel 重排模型名称，如 "doubao-rerank"。
+	RagRerankModel string `toml:"rerankModel"`
+	// RagRerankBaseUrl 重排服务完整地址（含 path），如 "https://.../rerank"。
+	RagRerankBaseUrl string `toml:"rerankBaseUrl"`
+	// RagRecallTopK 启用精排时的召回候选数（粗排放大）；<=0 时运行时默认 20。
+	RagRecallTopK int `toml:"recallTopK"`
+	// RagRerankTopK 精排后保留的文档数；<=0 时沿用 topK。
+	RagRerankTopK int `toml:"rerankTopK"`
+	// RagRerankMinScore 精排最低相关分阈值（越大越相关）；<=0 表示不按分数过滤。
+	RagRerankMinScore float64 `toml:"rerankMinScore"`
 }
 
 // VoiceServiceConfig 语音服务配置（百度 TTS 文字转语音）。

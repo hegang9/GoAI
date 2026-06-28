@@ -50,6 +50,18 @@ topK = 5
 maxDistance = 0.6
 # 是否在多轮对话中用 LLM 把追问改写为自包含检索 query
 enableQueryRewrite = false
+# 是否启用精排（reranker）：召回放大 → 交叉编码重排 → 截断 TopN；关闭则回到纯向量排序
+rerankEnable = false
+# 重排模型名称（启用精排时生效）
+rerankModel = "doubao-rerank"
+# 重排服务完整地址（含 path），按所选服务填写
+rerankBaseUrl = "https://your-rerank-endpoint/rerank"
+# 启用精排时的召回候选数（粗排放大），建议 20~50（<=0 默认 20）
+recallTopK = 20
+# 精排后保留的文档数（<=0 时沿用 topK）
+rerankTopK = 5
+# 精排最低相关分阈值（越大越相关），0 表示不按分数过滤
+rerankMinScore = 0.0
 
 [voiceServiceConfig]
 voiceServiceApiKey = "baiduApiKey"
