@@ -141,7 +141,7 @@ func (e *Engine) Index(ctx context.Context, accountNo, storedName, localPath str
 		return fmt.Errorf("failed to create indexer: %w", err)
 	}
 
-	docs, err := LoadDocuments(localPath, e.cfg.ChunkSize, e.cfg.ChunkOverlap)
+	docs, err := LoadDocuments(ctx, localPath, e.cfg.ChunkSize, e.cfg.ChunkOverlap)
 	if err != nil {
 		return err
 	}

@@ -46,8 +46,8 @@ go test ./test/... -v
 - `architecture_test.go`：领域层零框架依赖约束
 - `code_test.go` / `hash_test.go` / `id_test.go` / `random_test.go` / `logger_test.go` / `fileutil_test.go`：对应 `pkg/` 工具包测试
 - `storage_test.go` / `storage_hasdocs_test.go`：`internal/infrastructure/storage` 文档存储、路径安全与多文档判断测试
-- `rag_document_test.go`：RAG 文本分块（含中文/重叠/非法参数）与提示词构造测试
-- `rag_parser_test.go`：RAG 文档解析（txt/md/docx）与解析+分块流程测试
+- `rag_document_test.go`：RAG 文本分块（含中文/重叠/非法参数）、Eino 切分器路径（递归切分不断句、Markdown 标题切分）与提示词构造测试
+- `rag_parser_test.go`：RAG 文档解析（txt/md/docx）与解析+切分器分块流程测试
 - `rag_engine_test.go`：RAG 召回结果的距离解析与阈值过滤测试
 - `file_delete_test.go`：RAG 文档列出/批量删除应用服务与按文档删除存储的测试
 
@@ -121,7 +121,7 @@ embeddingModel = "text-embedding-v4"   # 向量嵌入模型
 chatModelName = "qwen-turbo"            # RAG 对话模型
 baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 dimension = 1024                        # 向量维度，需与嵌入模型匹配
-chunkSize = 512                         # 单个文本块最大字符数（<=0 默认 512）
+chunkSize = 512                         # 单个文本块最大字符数（<=0 默认 512；递归切分按自然边界切，单块长度可能略有出入）
 chunkOverlap = 64                       # 相邻块重叠字符数（<0 默认 64）
 topK = 5                                # 检索返回的最相关块数（<=0 默认 5）
 maxDistance = 0.6                       # COSINE 距离阈值，超出视为不相关（<=0 默认 0.6）
@@ -237,7 +237,7 @@ go run ./cmd/server
   - `cache/redis`：验证码存储与 RAG 向量索引存储。
   - `mq/rabbitmq`：消息发布器（实现 `MessageSink`）与消费落库。
   - `ai`：OpenAI / Ollama / RAG / MCP 模型实现与模型工厂，`schema.go` 负责领域消息与模型消息互转。
-  - `rag`：向量生成、文档加载/切块、索引、检索、提示词构造。
+  - `rag`：向量生成、文档加载/切块（Eino `document.Transformer` 切分器：非 Markdown 走递归切分、`.md` 走标题感知切分，失败时回退定长滑窗）、索引、检索、提示词构造。
   - `security`：bcrypt 密码哈希与 JWT 签发/解析；`email`/`image`/`tts`/`storage` 为其余适配器。
 - **接口层 `internal/interfaces/http`**：`router`/`controller`/`dto`/`middleware`/`sse`/`httpx`，负责协议绑定与响应。
 - **组合根 `internal/bootstrap`**：把基础设施适配器注入应用与接口层，并管理启停。
@@ -312,7 +312,7 @@ type Response struct {
 
 ## 注意事项
 
-- RAG 文件上传允许 `.md` / `.txt` / `.pdf` / `.docx` 文件；上传后会按 `chunkSize`/`chunkOverlap` 分块并写入向量索引（PDF 扫描件无法抽取文本，会因内容为空而上传失败）。
+- RAG 文件上传允许 `.md` / `.txt` / `.pdf` / `.docx` 文件；上传后先抽取纯文本，再用 Eino `document.Transformer` 切分器切块并写入向量索引：`.md` 走 Markdown 标题感知切分（保留标题层级到元数据），其余走递归切分（按段落/换行/中英文句末标点等自然边界递归，避免从句中硬断），切分器创建或执行失败时自动回退到原定长滑窗实现。切块结果仍以 `chunk_N` 编号并回填 `source`，与既有索引/检索完全兼容（PDF 扫描件无法抽取文本，会因内容为空而上传失败）。变更切分策略后，建议对存量知识库重新建索引以保持分块一致。
 - RAG 已支持多文档知识库：上传为追加，不再清理已有文档；向量索引按账号聚合（`rag_docs:{accountNo}:idx`），单个文档以 `rag_docs:{accountNo}:{storedName}:` 前缀存储，可按文档粒度删除。
 - 检索阶段会按 `topK` 召回并用 `maxDistance` 过滤不相关结果；过滤后为空（或账号无文档）时自动跳过检索增强，走普通对话，避免污染闲聊。
 - `enableQueryRewrite = true` 时，多轮对话会先用 LLM 把追问改写为自包含检索 query，改写失败自动回退到原文。

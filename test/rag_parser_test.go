@@ -2,6 +2,8 @@ package test
 
 import (
 	"archive/zip"
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,39 +50,38 @@ func TestParseFile_Docx(t *testing.T) {
 	}
 }
 
-// TestLoadDocuments_ChunksWithMetadata 校验解析+分块后每块带独立 ID 与来源元数据。
+// TestLoadDocuments_ChunksWithMetadata 校验解析+切分器分块后每块带连续 ID 与来源元数据。
+//
+// LoadDocuments 已改用 Eino 递归切分器：按句末标点等自然边界切分，
+// 因此构造多句中文文本以触发多块切分，再校验 chunk_N 编号连续、source 元数据正确。
 func TestLoadDocuments_ChunksWithMetadata(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "notes.txt")
-	// 30 个字符，chunkSize=10、overlap=0 → 步长 10 → 3 块。
-	if err := os.WriteFile(path, []byte(strings.Repeat("A", 30)), 0o644); err != nil {
+	// 12 个以“。”分隔的短句，chunkSize=6 → 递归切分器按“。”边界聚合为多块。
+	if err := os.WriteFile(path, []byte(strings.Repeat("数据。", 12)), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 
-	docs, err := rag.LoadDocuments(path, 10, 0)
+	docs, err := rag.LoadDocuments(context.Background(), path, 6, 0)
 	if err != nil {
 		t.Fatalf("LoadDocuments() error = %v", err)
 	}
-	if len(docs) != 3 {
-		t.Fatalf("LoadDocuments() chunks = %d, want 3", len(docs))
+	if len(docs) < 2 {
+		t.Fatalf("LoadDocuments() chunks = %d, want >= 2", len(docs))
 	}
 	for i, d := range docs {
-		if d.ID == "" {
-			t.Fatalf("doc[%d] empty ID", i)
+		// ID 必须为连续的 chunk_0、chunk_1 ...（向量 key 依赖该约定）。
+		if want := fmt.Sprintf("chunk_%d", i); d.ID != want {
+			t.Fatalf("doc[%d] ID = %q, want %q", i, d.ID, want)
 		}
 		if src, ok := d.MetaData["source"].(string); !ok || src != "notes.txt" {
 			t.Fatalf("doc[%d] source = %v, want notes.txt", i, d.MetaData["source"])
 		}
-	}
-	// chunk ID 必须唯一，避免覆盖。
-	seen := map[string]bool{}
-	for _, d := range docs {
-		if seen[d.ID] {
-			t.Fatalf("duplicate chunk ID %q", d.ID)
+		if chunk, ok := d.MetaData["chunk"].(int); !ok || chunk != i {
+			t.Fatalf("doc[%d] chunk meta = %v, want %d", i, d.MetaData["chunk"], i)
 		}
-		seen[d.ID] = true
 	}
 }
 
@@ -93,7 +94,7 @@ func TestLoadDocuments_EmptyFileError(t *testing.T) {
 	if err := os.WriteFile(path, []byte("   \n  "), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
-	if _, err := rag.LoadDocuments(path, 10, 0); err == nil {
+	if _, err := rag.LoadDocuments(context.Background(), path, 10, 0); err == nil {
 		t.Fatal("LoadDocuments(empty) error = nil, want error")
 	}
 }
