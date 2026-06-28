@@ -3,6 +3,7 @@
 package rag
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -72,23 +73,82 @@ func SplitIntoChunks(text string, chunkSize, overlap int) []Chunk {
 	return chunks
 }
 
-// LoadDocuments 解析磁盘文件、切块并转换为可索引的文档集合，将文件转换为Eino能够识别的文档块。
+// LoadDocuments 解析磁盘文件、用 Eino 切分器切块并转换为可索引的文档集合。
+//
+// 切块策略：先用 ParseFile 抽取纯文本，再交给按扩展名选择的 Eino 切分器（document.Transformer）
+// 递归/标题感知切分，尽量对齐句子、段落、Markdown 标题等自然边界，保持语义完整。
+// 切分器创建或执行失败时自动回退到旧定长滑窗实现（loadByFixedWindow），保证索引流程不中断。
 //
 // 每个 chunk 生成独立 ID（chunk_N）与元数据（source 原始文件名、chunk 序号），
-// 以支持向量级检索与引用溯源。空内容文件会返回错误，避免建立空索引。
-func LoadDocuments(filePath string, chunkSize, overlap int) ([]*schema.Document, error) {
+// 以支持向量级检索与引用溯源（向量 key 依赖 chunk_N，重编号后保持兼容）。
+// 空内容文件会返回错误，避免建立空索引。
+func LoadDocuments(ctx context.Context, filePath string, chunkSize, overlap int) ([]*schema.Document, error) {
 	raw, err := ParseFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("parse file failed: %w", err)
 	}
-
-	chunks := SplitIntoChunks(raw, chunkSize, overlap)
-	if len(chunks) == 0 {
-		logger.Warn("loadDocuments produced no chunks", "path", filePath)
+	if strings.TrimSpace(raw) == "" {
+		logger.Warn("loadDocuments empty content", "path", filePath)
 		return nil, fmt.Errorf("no content parsed from file: %s", filePath)
 	}
 
 	source := filepath.Base(filePath)
+	ext := filepath.Ext(filePath)
+
+	// 兜底：切分器创建失败时回退到原定长滑窗实现。
+	splitter, err := newSplitter(ctx, ext, chunkSize, overlap)
+	if err != nil {
+		logger.Warn("create splitter failed, fallback to fixed window", "path", filePath, "err", err)
+		return loadByFixedWindow(raw, source, chunkSize, overlap)
+	}
+
+	// 将抽取出的纯文本包成单个父文档交给切分器；切分结果继承父文档 MetaData。
+	parent := &schema.Document{
+		ID:       source,
+		Content:  raw,
+		MetaData: map[string]any{"source": source},
+	}
+	chunks, err := splitter.Transform(ctx, []*schema.Document{parent})
+	if err != nil || len(chunks) == 0 {
+		logger.Warn("splitter transform failed, fallback to fixed window", "path", filePath, "err", err, "chunks", len(chunks))
+		return loadByFixedWindow(raw, source, chunkSize, overlap)
+	}
+
+	// 统一重新编号 ID 为 chunk_N，并确保 source 元数据存在（向量 key 依赖 chunk_N）。
+	// 切分器可能产出纯空白块（如标题切分后的空段），这里跳过以免污染索引。
+	docs := make([]*schema.Document, 0, len(chunks))
+	idx := 0
+	for _, c := range chunks {
+		if strings.TrimSpace(c.Content) == "" {
+			continue
+		}
+		if c.MetaData == nil {
+			c.MetaData = map[string]any{}
+		}
+		c.MetaData["source"] = source
+		c.MetaData["chunk"] = idx
+		c.ID = fmt.Sprintf("chunk_%d", idx)
+		docs = append(docs, c)
+		idx++
+	}
+	if len(docs) == 0 {
+		logger.Warn("splitter produced only blank chunks, fallback to fixed window", "path", filePath)
+		return loadByFixedWindow(raw, source, chunkSize, overlap)
+	}
+	logger.Info("loadDocuments chunked by eino splitter", "path", filePath, "ext", ext, "chunks", len(docs))
+	return docs, nil
+}
+
+// loadByFixedWindow 旧定长滑窗实现，作为 Eino 切分器不可用时的兜底。
+//
+// 复用 SplitIntoChunks 按 rune 定长切块，再构造与切分器路径一致的 chunk_N 文档结构，
+// 保证两条路径产出的文档在 ID / MetaData 约定上完全兼容。
+func loadByFixedWindow(raw, source string, chunkSize, overlap int) ([]*schema.Document, error) {
+	chunks := SplitIntoChunks(raw, chunkSize, overlap)
+	if len(chunks) == 0 {
+		logger.Warn("loadByFixedWindow produced no chunks", "source", source)
+		return nil, fmt.Errorf("no content parsed from file: %s", source)
+	}
 	docs := make([]*schema.Document, 0, len(chunks))
 	for _, c := range chunks {
 		docs = append(docs, &schema.Document{
@@ -100,7 +160,7 @@ func LoadDocuments(filePath string, chunkSize, overlap int) ([]*schema.Document,
 			},
 		})
 	}
-	logger.Info("loadDocuments chunked", "path", filePath, "chunks", len(docs))
+	logger.Info("loadByFixedWindow chunked", "source", source, "chunks", len(docs))
 	return docs, nil
 }
 

@@ -100,6 +100,15 @@ func New() (*App, error) {
 	vectorStore := redisstore.NewVectorStore(rdb)
 
 	// —— RAG 引擎 + AI 模型工厂 ——
+	// 精排器（reranker）：仅在配置开启时构造，复用统一的 AI API Key；
+	// 关闭或未配置时传 nil，Engine 自动按纯向量排序运行。
+	var reranker raginfra.Reranker
+	if conf.RagRerankEnable {
+		reranker = raginfra.NewHTTPReranker(conf.RagRerankBaseUrl, conf.AIModelConfig.APIKey, conf.RagRerankModel)
+		logger.Info("rag reranker init success",
+			"model", conf.RagRerankModel,
+			"baseURL", conf.RagRerankBaseUrl)
+	}
 	ragEngine, err := raginfra.NewEngine(context.Background(), raginfra.Config{
 		EmbeddingModel: conf.RagEmbeddingModel,
 		BaseURL:        conf.RagBaseUrl,
@@ -109,7 +118,11 @@ func New() (*App, error) {
 		ChunkOverlap:   conf.RagChunkOverlap,
 		TopK:           conf.RagTopK,
 		MaxDistance:    conf.RagMaxDistance,
-	}, vectorStore)
+		RecallTopK:     conf.RagRecallTopK,
+		RerankTopK:     conf.RagRerankTopK,
+		RerankEnable:   conf.RagRerankEnable,
+		RerankMinScore: conf.RagRerankMinScore,
+	}, vectorStore, reranker)
 	if err != nil {
 		return nil, fmt.Errorf("init rag engine failed: %w", err)
 	}

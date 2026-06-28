@@ -1,6 +1,10 @@
 package test
 
 import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -73,6 +77,120 @@ func TestSplitIntoChunks_InvalidParamsNoInfiniteLoop(t *testing.T) {
 	one := rag.SplitIntoChunks("short text", 0, 0)
 	if len(one) != 1 || one[0].Content != "short text" {
 		t.Fatalf("default chunkSize result = %v, want single chunk", one)
+	}
+}
+
+// TestLoadDocuments_RecursiveSplitNoMidSentenceCut 校验递归切分器按句末标点切分，
+// 不从句子中间硬断：每个块都以“。”收尾（KeepTypeEnd 保留分隔符），且 chunk_N / source 正确。
+func TestLoadDocuments_RecursiveSplitNoMidSentenceCut(t *testing.T) {
+	t.Parallel()
+
+	// 8 个长度不一的中文句子，单句均短于 chunkSize，确保切分点落在“。”而非句中。
+	sentences := []string{
+		"苹果是一种常见的水果",
+		"香蕉富含丰富的钾元素",
+		"橙子含有大量维生素C",
+		"葡萄可以用来酿造红酒",
+		"西瓜在夏天非常受欢迎",
+		"草莓的外形小巧而鲜红",
+		"芒果带有浓郁的热带风味",
+		"樱桃常被用作蛋糕装饰",
+	}
+	text := strings.Join(sentences, "。") + "。"
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fruit.txt")
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	docs, err := rag.LoadDocuments(context.Background(), path, 20, 0)
+	if err != nil {
+		t.Fatalf("LoadDocuments() error = %v", err)
+	}
+	if len(docs) < 2 {
+		t.Fatalf("expected multiple chunks, got %d", len(docs))
+	}
+	for i, d := range docs {
+		content := strings.TrimSpace(d.Content)
+		if !strings.HasSuffix(content, "。") {
+			t.Fatalf("chunk[%d]=%q not ending at sentence boundary", i, content)
+		}
+		if want := fmt.Sprintf("chunk_%d", i); d.ID != want {
+			t.Fatalf("chunk[%d] ID = %q, want %q", i, d.ID, want)
+		}
+		if src, _ := d.MetaData["source"].(string); src != "fruit.txt" {
+			t.Fatalf("chunk[%d] source = %v, want fruit.txt", i, d.MetaData["source"])
+		}
+	}
+	// 拼回所有块后应覆盖每个原始句子，确认没有句子被从中间切坏。
+	joined := ""
+	for _, d := range docs {
+		joined += d.Content
+	}
+	for _, s := range sentences {
+		if !strings.Contains(joined, s) {
+			t.Fatalf("sentence %q was split across chunks (not found intact)", s)
+		}
+	}
+}
+
+// TestLoadDocuments_MarkdownHeaderSplit 校验 .md 走标题感知切分：
+// 按 #/##/### 切块、标题层级写入 MetaData、代码块完整保留、chunk_N / source 正确。
+func TestLoadDocuments_MarkdownHeaderSplit(t *testing.T) {
+	t.Parallel()
+
+	md := strings.Join([]string{
+		"# 一级标题",
+		"这是第一段正文内容。",
+		"",
+		"## 二级标题",
+		"这是第二段，稍微长一点的内容。",
+		"",
+		"### 三级标题",
+		"```go",
+		`fmt.Println("hello world")`,
+		"```",
+		"结尾段落收尾。",
+	}, "\n")
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "guide.md")
+	if err := os.WriteFile(path, []byte(md), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	docs, err := rag.LoadDocuments(context.Background(), path, 512, 64)
+	if err != nil {
+		t.Fatalf("LoadDocuments() error = %v", err)
+	}
+	if len(docs) < 2 {
+		t.Fatalf("markdown split expected multiple sections, got %d", len(docs))
+	}
+	for i, d := range docs {
+		if want := fmt.Sprintf("chunk_%d", i); d.ID != want {
+			t.Fatalf("chunk[%d] ID = %q, want %q", i, d.ID, want)
+		}
+		if src, _ := d.MetaData["source"].(string); src != "guide.md" {
+			t.Fatalf("chunk[%d] source = %v, want guide.md", i, d.MetaData["source"])
+		}
+	}
+	// 第一块应携带一级标题元数据。
+	if h1, _ := docs[0].MetaData["h1"].(string); h1 != "一级标题" {
+		t.Fatalf("first chunk h1 meta = %v, want 一级标题", docs[0].MetaData["h1"])
+	}
+	// 代码块内容必须完整保留在某个块中（未被标题切分破坏）。
+	foundCode := false
+	for _, d := range docs {
+		if strings.Contains(d.Content, `fmt.Println("hello world")`) {
+			foundCode = true
+			if h3, _ := d.MetaData["h3"].(string); h3 != "三级标题" {
+				t.Fatalf("code chunk h3 meta = %v, want 三级标题", d.MetaData["h3"])
+			}
+		}
+	}
+	if !foundCode {
+		t.Fatal("code block content missing from all chunks")
 	}
 }
 
