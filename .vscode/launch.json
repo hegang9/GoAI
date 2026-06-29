@@ -1,4 +1,4 @@
-﻿{
+{
   "version": "0.2.0",
   "configurations": [
     {
@@ -10,15 +10,28 @@
       "cwd": "${workspaceFolder}",
       "env": {
         "LOG_LEVEL": "debug"
-      }
+      },
+      "preLaunchTask": "gopherai: release dev ports",
+      "postDebugTask": "gopherai: release dev ports"
     },
     {
       "name": "GopherAI: 前端",
       "type": "chrome",
       "request": "launch",
       "url": "http://localhost:8080",
-      "webRoot": "${workspaceFolder}/vue-frontend/src",
-      "preLaunchTask": "vue-frontend: serve"
+      "webRoot": "${workspaceFolder}/vue-frontend",
+      "sourceMapPathOverrides": {
+        "webpack:///src/*": "${webRoot}/src/*",
+        "webpack:///./src/*": "${webRoot}/src/*",
+        "webpack:///./node_modules/*": "${webRoot}/node_modules/*",
+        "webpack:///*": "*"
+      },
+      "resolveSourceMapLocations": [
+        "${workspaceFolder}/vue-frontend/src/**",
+        "!**/node_modules/**"
+      ],
+      "preLaunchTask": "vue-frontend: serve",
+      "postDebugTask": "gopherai: release dev ports"
     },
     {
       "name": "GopherAI: MCP 服务",
@@ -32,7 +45,9 @@
         "server",
         "--http-addr",
         ":8081"
-      ]
+      ],
+      "preLaunchTask": "gopherai: release dev ports",
+      "postDebugTask": "gopherai: release dev ports"
     }
   ],
   "compounds": [
@@ -42,7 +57,9 @@
         "GopherAI: 后端",
         "GopherAI: 前端"
       ],
-      "stopAll": true
+      "stopAll": true,
+      "preLaunchTask": "gopherai: release dev ports",
+      "postDebugTask": "gopherai: release dev ports"
     }
   ]
 }

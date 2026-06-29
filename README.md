@@ -69,7 +69,7 @@ go test ./test/... -v
 | --- | --- |
 | `.vscode/settings.json` | Go（gofmt + gopls + staticcheck）、Vue/ESLint、保存时格式化与 import 整理、文件排除规则 |
 | `.vscode/launch.json` | 一键调试：后端（Go/Delve）、前端（Chrome + dev server）、全栈复合启动、可选 MCP 服务 |
-| `.vscode/tasks.json` | 前端 `npm run serve` 后台任务，供 `launch.json` 的 `preLaunchTask` 使用 |
+| `.vscode/tasks.json` | 前端 `npm run serve` 后台任务，以及统一的 `gopherai: release dev ports` 端口清理任务 |
 | `.vscode/extensions.json` | 推荐扩展：Go、Volar、ESLint、Prettier、TOML 等 |
 
 首次打开项目时，按提示安装推荐扩展即可。个人偏好（主题、翻译、Copilot 等）请保留在用户级 `settings.json`，不要写入工作区配置。
@@ -80,12 +80,12 @@ go test ./test/... -v
 
 | 配置名 | 说明 |
 | --- | --- |
-| `GopherAI: 后端` | 以 Delve 调试 `cmd/server`，工作目录为项目根（读取 `config/config.toml`），`LOG_LEVEL=debug` |
-| `GopherAI: 前端` | 先启动 `vue-frontend` dev server，再打开 Chrome 调试 `http://localhost:8080` |
-| `GopherAI: 全栈调试` | 同时启动后端与前端（前端代理 `/api` → `localhost:9090`） |
-| `GopherAI: MCP 服务` | 独立调试 `cmd/mcp` 天气工具服务（`:8081`） |
+| `GopherAI: 后端` | 以 Delve 调试 `cmd/server`，工作目录为项目根（读取 `config/config.toml`），`LOG_LEVEL=debug`；启动前/结束调试后自动释放 `9090` |
+| `GopherAI: 前端` | 先启动 `vue-frontend` dev server，再打开 Chrome 调试 `http://localhost:8080`；结束调试后自动释放 `8080` 等前端端口 |
+| `GopherAI: 全栈调试` | 同时启动后端与前端（前端代理 `/api` → `localhost:9090`）；启动前清理残留端口，停止调试后释放 `9090`/`8080` 等 |
+| `GopherAI: MCP 服务` | 独立调试 `cmd/mcp` 天气工具服务（`:8081`）；启动前/结束调试后自动释放 `8081` |
 
-前置条件：已安装 [Go 扩展](https://marketplace.visualstudio.com/items?itemName=golang.go) 与 Delve；前端调试需本机 Chrome。`vue-frontend` 依赖通过 `npm install` 安装。
+前置条件：已安装 [Go 扩展](https://marketplace.visualstudio.com/items?itemName=golang.go) 与 Delve；前端调试需本机 Chrome。`vue-frontend` 依赖通过 `npm install` 安装。端口清理由 `.vscode/tasks.json` 调用 `.vscode/kill-ports.cmd` 完成（需 Windows，管理员权限非必须）。
 
 ## 配置说明
 

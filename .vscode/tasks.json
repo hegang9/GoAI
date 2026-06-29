@@ -1,12 +1,28 @@
-﻿{
+{
   "version": "2.0.0",
   "tasks": [
+    {
+      "label": "gopherai: release dev ports",
+      "type": "shell",
+      "command": ".vscode\\kill-ports.cmd 8080 8081 9090",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      }
+    },
     {
       "label": "vue-frontend: serve",
       "type": "npm",
       "script": "serve",
       "path": "vue-frontend",
       "isBackground": true,
+      "dependsOn": "gopherai: release dev ports",
+      "runOptions": {
+        "instanceLimit": 1,
+        "reevaluateOnRerun": true
+      },
       "problemMatcher": {
         "owner": "custom",
         "pattern": {

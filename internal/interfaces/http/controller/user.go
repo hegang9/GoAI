@@ -4,6 +4,8 @@ import (
 	"GopherAI/internal/interfaces/http/dto"
 	"GopherAI/internal/interfaces/http/httpx"
 
+	"GopherAI/pkg/logger"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -15,6 +17,7 @@ func (h *Handlers) Login(c *gin.Context, req dto.LoginRequest) {
 
 // Register 用户注册。
 func (h *Handlers) Register(c *gin.Context, req dto.RegisterRequest) {
+	logger.Info("Register request", "email:", req.Email)
 	token, errCode := h.User.Register(c.Request.Context(), req.Email, req.Password, req.Captcha)
 	httpx.JSON(c, &dto.RegisterResponse{Token: token}, errCode)
 }
