@@ -99,7 +99,7 @@ go test ./test/... -v
 | `[rabbitmqConfig]` | RabbitMQ 地址、账号、密码和 vhost |
 | `[emailConfig]` | 注册验证码邮件配置 |
 | `[jwtConfig]` | JWT 过期时间、签发信息和密钥 |
-| `[ragModelConfig]` | RAG 使用的模型名、文档目录、OpenAI 兼容 Base URL、向量维度，以及检索增强参数（分块大小/重叠、TopK、距离阈值、是否启用多轮 query 改写、是否启用精排 reranker 及其召回放大/截断/最低分阈值） |
+| `[ragModelConfig]` | RAG 使用的模型名、文档目录、OpenAI 兼容 Base URL、向量维度，以及检索增强参数（分块大小/重叠、TopK、距离阈值、是否启用多轮 query 改写、是否启用精排 reranker 及其召回放大/截断/最低分阈值、语义切分/上下文增强/块头标签三项分块索引升级开关） |
 | `[voiceServiceConfig]` | 百度 TTS API Key 和 Secret Key |
 | `[aiModelConfig]` | 普通 OpenAI 兼容模型名、Base URL 与通用 AI API Key 配置 |
 | `[chatReplayConfig]` | 会话历史回放：启动预热最近 N 个活跃会话、默认模型类型 |
@@ -133,7 +133,17 @@ rerankBaseUrl = "https://your-rerank-endpoint/rerank"  # 重排服务完整地�
 recallTopK = 20                         # 启用精排时的召回候选数（粗排放大，<=0 默认 20）
 rerankTopK = 5                          # 精排后保留的文档数（<=0 时沿用 topK）
 rerankMinScore = 0.0                    # 精排最低相关分阈值（越大越相关），0 表示不过滤
+enableSemanticChunking = false         # 是否启用语义切分（句向量相似度断点）；仅对新上传文档生效，不迁移存量索引
+semanticBreakpointPercentile = 95.0    # 语义断点距离分位数阈值（0-100，越大切块越少；非法值默认 95）
+semanticBufferSize = 1                 # 句向量滑窗每侧大小（>0 时用相邻句拼接稳定单句语义；<0 默认 1）
+contextWindow = 0                       # 上下文增强：命中块前后各取 N 个邻居块拼接（0=关闭）
+enableHeaderInjection = false          # 是否在块正文首部注入「来源｜章节」块头标签（默认关闭，仅对新文档生效）
 ```
+
+> **文档分块与索引升级（灰度 / newdocs_only）**：`enableSemanticChunking`、`contextWindow`、`enableHeaderInjection` 三项均**默认关闭、保持现有行为**，开启后仅对**新上传文档**生效、**不迁移存量索引**（存量按旧 schema 优雅降级）。
+> - **语义切分**（`enableSemanticChunking`）：非 Markdown 文件按句向量余弦距离的 `semanticBreakpointPercentile` 分位数定位语义边界断块，过短块合并、超长块二次硬切；任一步失败自动回退递归切分→定长滑窗，索引不中断。Markdown 仍走标题感知切分以保留章节结构。
+> - **上下文增强**（`contextWindow`）：检索打分仍用小块保精度，命中后按确定性 key `rag_docs:{accountNo}:{storedName}:chunk_N` 取回前后各 N 个邻居块，按 chunk 序拼接、跨命中去重合并相邻 span；索引期额外写 `chunk`/`stored` HASH 字段用于定位，存量旧块无此字段时自动跳过扩展。
+> - **块头标签**（`enableHeaderInjection`）：把「来源：foo.md｜章节：H1 > H2」前缀拼到块正文首部（同时进入向量与提示词），并写入 `headers` 元数据；引用展示行扩展为 `[文档 N｜来源：foo.md｜章节：H1 > H2]`。
 
 启用精排后检索变为“**粗排（向量召回放大到 `recallTopK`）→ 精排（reranker 重排打分）→ 截断到 `rerankTopK` →（可选）按 `rerankMinScore` 兜底过滤**”两阶段流程；精排服务调用失败时自动降级为向量排序，RAG 链路不中断。`rerankEnable = false`（默认）时回到纯向量排序的现有行为。注意：`maxDistance` 是向量 **距离**（越小越相关）粗筛阈值，`rerankMinScore` 是精排 **相关分**（越大越相关）阈值，两者语义相反、不可混用。复用 `[aiModelConfig].apiKey` 作为重排服务鉴权 Key。
 
@@ -329,6 +339,11 @@ type Response struct {
 - 检索阶段会按 `topK` 召回并用 `maxDistance` 过滤不相关结果；过滤后为空（或账号无文档）时自动跳过检索增强，走普通对话，避免污染闲聊。
 - `rerankEnable = true` 时启用两阶段检索：召回放大到 `recallTopK`、距离粗筛后交由 reranker 精排重排、截断到 `rerankTopK`，并可按 `rerankMinScore` 兜底过滤；精排结果的相关分写入文档 `rerank_score` 元数据。精排器未注入或调用失败时自动降级为向量排序，不中断链路。
 - `enableQueryRewrite = true` 时，多轮对话会先用 LLM 把追问改写为自包含检索 query，改写失败自动回退到原文。
+- `enableSemanticChunking = true` 时，非 Markdown 文件按句向量相似度断点做语义切分（`semanticBreakpointPercentile` 控制断块密度、`semanticBufferSize` 控制句向量滑窗），过短块合并、超长块按 `chunkSize` 二次硬切；embedding 报错/句子过少/空结果时自动回退递归切分→定长滑窗。Markdown 始终走标题感知切分。复用 Engine 内缓存的 Embedder，无需额外配置。
+- `contextWindow > 0` 时启用上下文增强（small-to-big）：检索/打分仍用小块保精度，命中后按确定性 key 取回前后各 N 个邻居块，按 chunk 序拼接并跨命中去重合并相邻 span 后交 `BuildPrompt`。索引期额外写入 `chunk`/`stored` 普通 HASH 字段用于定位（不改 `FT.CREATE` schema），存量旧文档无此字段时安全跳过、不触发扩展。
+- `enableHeaderInjection = true` 时，把「来源：foo.md｜章节：H1 > H2」前缀拼到块正文首部（同时进入向量与提示词）并写入 `headers` 元数据；引用展示行扩展为 `[文档 N｜来源：foo.md｜章节：H1 > H2]`，非 Markdown 文件以文件名兜底。
+- 上述三项分块索引升级均**默认关闭、互不强耦合**，遵循 `newdocs_only` 灰度：开启后仅对新上传文档生效，不迁移存量索引，存量按旧 schema 优雅降级。
+- 三项升级的关键节点均有结构化日志：索引入口记录开关状态，语义切分记录选中/开始/断点/硬切/降级，块头标签记录注入块数，上下文增强记录扩展前后数量与邻居读取统计；邻居块 key 级追踪使用 `Debug` 日志，可通过 `LOG_LEVEL=debug` 打开。
 - 图片识别依赖服务器上的 ONNX 模型路径 `/root/models/mobilenetv2/mobilenetv2-7.onnx` 和标签文件 `/root/imagenet_classes.txt`。
 - TTS 接口依赖百度智能云语音合成配置。
 - 受保护接口需要请求头 `Authorization: Bearer <token>`；JWT 中间件也兼容 URL 参数 `?token=<token>`。

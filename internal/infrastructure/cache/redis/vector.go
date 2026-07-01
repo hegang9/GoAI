@@ -95,6 +95,48 @@ func (v *VectorStore) InitIndex(ctx context.Context, accountNo string, dimension
 	return nil
 }
 
+// GetNeighborChunk 按确定性 key 取回某个文档指定序号块的正文，用于检索期的上下文增强（取回邻居块）。
+//
+// key 由账号前缀 + storedName + chunk_N 确定性拼接（storedName 为 uuid 不含 ":"）：
+//
+//	rag_docs:{accountNo}:{storedName}:chunk_{idx}
+//
+// 块不存在（越界 / 存量旧文档）时返回空串且 err 为 nil，由调用方安全跳过（优雅降级）。
+func (v *VectorStore) GetNeighborChunk(ctx context.Context, accountNo, storedName string, idx int) (string, error) {
+	if idx < 0 {
+		logger.Debug("neighbor chunk skipped: negative index",
+			"accountNo", accountNo,
+			"storedName", storedName,
+			"chunk", idx)
+		return "", nil
+	}
+	key := fmt.Sprintf("%s%s:chunk_%d", v.AccountPrefix(accountNo), storedName, idx)
+	logger.Debug("neighbor chunk fetch start",
+		"accountNo", accountNo,
+		"storedName", storedName,
+		"chunk", idx,
+		"key", key)
+	val, err := v.client.HGet(ctx, key, "content").Result()
+	if err == redisCli.Nil {
+		logger.Debug("neighbor chunk missing",
+			"accountNo", accountNo,
+			"storedName", storedName,
+			"chunk", idx,
+			"key", key)
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("取回邻居块失败: %w", err)
+	}
+	logger.Debug("neighbor chunk fetched",
+		"accountNo", accountNo,
+		"storedName", storedName,
+		"chunk", idx,
+		"key", key,
+		"contentLen", len([]rune(val)))
+	return val, nil
+}
+
 // DeleteDocVectors 删除指定账号下某个文档的全部向量数据（保留账号索引本身）。
 // 通过 SCAN 匹配文档级前缀，分批删除，避免使用阻塞性的 KEYS。
 func (v *VectorStore) DeleteDocVectors(ctx context.Context, accountNo, storedName string) error {

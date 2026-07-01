@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	domainrag "GopherAI/internal/domain/rag"
 	redisstore "GopherAI/internal/infrastructure/cache/redis"
@@ -52,6 +53,16 @@ type Config struct {
 	RerankEnable bool
 	// RerankMinScore 精排最低相关分阈值，<=0 表示不按分数过滤。
 	RerankMinScore float64
+	// EnableSemanticChunking 是否启用语义切分（句向量相似度断点）；关闭走递归/标题切分。
+	EnableSemanticChunking bool
+	// SemanticPercentile 语义断点距离分位数阈值（0-100）；<=0 时运行时默认 95。
+	SemanticPercentile float64
+	// SemanticBufferSize 句向量滑窗每侧大小；<0 时运行时默认 1。
+	SemanticBufferSize int
+	// ContextWindow 上下文增强：命中块前后各取 N 个邻居块拼接；0=关闭。
+	ContextWindow int
+	// EnableHeaderInjection 是否在块正文首部注入「来源｜章节」块头标签。
+	EnableHeaderInjection bool
 }
 
 // Engine 是 RAG 能力的统一实现：建立/删除索引、检索文档、构造提示词。
@@ -92,7 +103,12 @@ func NewEngine(ctx context.Context, cfg Config, vs *redisstore.VectorStore, rera
 		"rerankActive", rerankActive,
 		"recallTopK", cfg.RecallTopK,
 		"rerankTopK", cfg.RerankTopK,
-		"rerankMinScore", cfg.RerankMinScore)
+		"rerankMinScore", cfg.RerankMinScore,
+		"enableSemanticChunking", cfg.EnableSemanticChunking,
+		"semanticPercentile", cfg.SemanticPercentile,
+		"semanticBufferSize", cfg.SemanticBufferSize,
+		"contextWindow", cfg.ContextWindow,
+		"enableHeaderInjection", cfg.EnableHeaderInjection)
 	return &Engine{cfg: cfg, vs: vs, embedder: emb, reranker: reranker}, nil
 }
 
@@ -121,6 +137,18 @@ func normalizeConfig(cfg Config) Config {
 	if cfg.RerankTopK <= 0 {
 		cfg.RerankTopK = cfg.TopK
 	}
+	// 语义断点分位数兜底：非法（<=0 或 >100）时回到默认分位数。
+	if cfg.SemanticPercentile <= 0 || cfg.SemanticPercentile > 100 {
+		cfg.SemanticPercentile = defaultSemanticPercentile
+	}
+	// 句向量滑窗大小兜底：负数无意义，回到默认每侧 1 句。
+	if cfg.SemanticBufferSize < 0 {
+		cfg.SemanticBufferSize = defaultSemanticBufferSize
+	}
+	// 上下文窗口兜底：负数等同关闭。
+	if cfg.ContextWindow < 0 {
+		cfg.ContextWindow = 0
+	}
 	return cfg
 }
 
@@ -148,6 +176,15 @@ func (e *Engine) Index(ctx context.Context, accountNo, storedName, localPath str
 	if err := e.vs.InitIndex(ctx, accountNo, e.cfg.Dimension); err != nil {
 		return fmt.Errorf("failed to init redis index: %w", err)
 	}
+	logger.Info("Index load documents start",
+		"accountNo", accountNo,
+		"storedName", storedName,
+		"localPath", localPath,
+		"enableSemanticChunking", e.cfg.EnableSemanticChunking,
+		"semanticPercentile", e.cfg.SemanticPercentile,
+		"semanticBufferSize", e.cfg.SemanticBufferSize,
+		"enableHeaderInjection", e.cfg.EnableHeaderInjection,
+		"contextWindow", e.cfg.ContextWindow)
 
 	indexerConfig := &redisIndexer.IndexerConfig{
 		Client:    e.vs.Client(),
@@ -159,13 +196,24 @@ func (e *Engine) Index(ctx context.Context, accountNo, storedName, localPath str
 			if s, ok := doc.MetaData["source"].(string); ok {
 				source = s
 			}
+			// 上下文增强定位元数据：额外写入 chunk（序号）与 stored（storedName）两个普通 HASH 字段，
+			// 检索期据此确定性拼接邻居块 key，避免脆弱的 key 解析；存量旧文档无此字段时不触发扩展。
+			f2v := map[string]redisIndexer.FieldValue{
+				"content":  {Value: doc.Content, EmbedKey: "vector"},
+				"metadata": {Value: source},
+				"stored":   {Value: storedName},
+			}
+			if c, ok := doc.MetaData["chunk"].(int); ok {
+				f2v["chunk"] = redisIndexer.FieldValue{Value: strconv.Itoa(c)}
+			}
+			// 块头标签（可选）：注入开启时写入章节路径，供检索期引用展示与可选过滤。
+			if h, ok := doc.MetaData["headers"].(string); ok && h != "" {
+				f2v["headers"] = redisIndexer.FieldValue{Value: h}
+			}
 			return &redisIndexer.Hashes{
 				// 最终 key = KeyPrefix + Key = rag_docs:{accountNo}:{storedName}:{chunk_N}
-				Key: fmt.Sprintf("%s:%s", storedName, doc.ID),
-				Field2Value: map[string]redisIndexer.FieldValue{
-					"content":  {Value: doc.Content, EmbedKey: "vector"},
-					"metadata": {Value: source},
-				},
+				Key:         fmt.Sprintf("%s:%s", storedName, doc.ID),
+				Field2Value: f2v,
 			}, nil
 		},
 	}
@@ -176,7 +224,16 @@ func (e *Engine) Index(ctx context.Context, accountNo, storedName, localPath str
 		return fmt.Errorf("failed to create indexer: %w", err)
 	}
 
-	docs, err := LoadDocuments(ctx, localPath, e.cfg.ChunkSize, e.cfg.ChunkOverlap)
+	// 按引擎配置透传分块升级开关（语义切分 / 块头标签）；Embedder 复用引擎内缓存实例。
+	docs, err := loadDocuments(ctx, localPath, loadOptions{
+		ChunkSize:              e.cfg.ChunkSize,
+		Overlap:                e.cfg.ChunkOverlap,
+		Embedder:               e.embedder,
+		EnableSemanticChunking: e.cfg.EnableSemanticChunking,
+		SemanticPercentile:     e.cfg.SemanticPercentile,
+		SemanticBufferSize:     e.cfg.SemanticBufferSize,
+		EnableHeaderInjection:  e.cfg.EnableHeaderInjection,
+	})
 	if err != nil {
 		return err
 	}
@@ -227,7 +284,7 @@ func (e *Engine) Retrieve(ctx context.Context, accountNo, query string) (prompt 
 		Client:       e.vs.Client(),
 		Index:        e.vs.IndexName(accountNo),
 		Dialect:      2,
-		ReturnFields: []string{"content", "metadata", "distance"},
+		ReturnFields: []string{"content", "metadata", "distance", "chunk", "stored", "headers"},
 		TopK:         recallTopK,
 		VectorField:  "vector",
 		DocumentConverter: func(ctx context.Context, doc redisCli.Document) (*schema.Document, error) {
@@ -282,12 +339,163 @@ func (e *Engine) Retrieve(ctx context.Context, accountNo, query string) (prompt 
 		logger.Info("Retrieve no relevant docs", "accountNo", accountNo, "retrieved", len(docs))
 		return query, false, nil
 	}
+
+	// 上下文增强（small-to-big / 句窗）：检索打分仍用小块保精度，命中后按确定性 key
+	// 取回命中块前后各 ContextWindow 个邻居块拼接，兼顾召回精度与上下文完整性；
+	// ContextWindow=0（默认）时此步为空操作，存量无定位元数据的旧块自动跳过（优雅降级）。
+	if e.cfg.ContextWindow > 0 {
+		logger.Info("context window expansion start",
+			"accountNo", accountNo,
+			"window", e.cfg.ContextWindow,
+			"relevant", len(relevant))
+		var neighborFetches, neighborMisses, neighborErrors int
+		fetch := func(stored string, idx int) string {
+			neighborFetches++
+			c, ferr := e.vs.GetNeighborChunk(ctx, accountNo, stored, idx)
+			if ferr != nil {
+				neighborErrors++
+				logger.Warn("fetch neighbor chunk failed",
+					"accountNo", accountNo, "stored", stored, "chunk", idx, "err", ferr)
+				return ""
+			}
+			if c == "" {
+				neighborMisses++
+			}
+			return c
+		}
+		before := len(relevant)
+		relevant = expandWithNeighbors(relevant, e.cfg.ContextWindow, fetch)
+		logger.Info("context window expanded",
+			"accountNo", accountNo,
+			"window", e.cfg.ContextWindow,
+			"before", before,
+			"after", len(relevant),
+			"neighborFetches", neighborFetches,
+			"neighborMisses", neighborMisses,
+			"neighborErrors", neighborErrors)
+	}
+
 	logger.Info("Retrieve success",
 		"accountNo", accountNo,
 		"retrieved", len(docs),
 		"relevant", len(relevant),
 		"rerankActive", rerankActive)
 	return BuildPrompt(query, relevant), true, nil
+}
+
+// chunkLocator 从文档元数据解析上下文增强所需的定位信息 (storedName, chunk序号)。
+//
+// chunk 序号兼容索引期写入的 int 与检索期返回的 string 两种类型；
+// 缺少 stored 或 chunk（存量旧文档）时返回 ok=false，调用方据此跳过扩展，实现优雅降级。
+func chunkLocator(d *schema.Document) (stored string, idx int, ok bool) {
+	if d == nil || d.MetaData == nil {
+		return "", 0, false
+	}
+	s, has := d.MetaData["stored"].(string)
+	if !has || s == "" {
+		return "", 0, false
+	}
+	switch c := d.MetaData["chunk"].(type) {
+	case int:
+		return s, c, true
+	case int64:
+		return s, int(c), true
+	case float64:
+		return s, int(c), true
+	case string:
+		n, err := strconv.Atoi(strings.TrimSpace(c))
+		if err != nil {
+			return "", 0, false
+		}
+		return s, n, true
+	default:
+		return "", 0, false
+	}
+}
+
+// expandWithNeighbors 按 window 把每个命中块扩展为「前后各 window 个邻居块」的连续 span，
+// 并跨命中去重、合并相邻 span，提升交给模型的上下文完整性。
+//
+// 行为约定：
+//   - window<=0 时原样返回，不做任何扩展；
+//   - 无法定位的块（存量旧文档缺定位元数据）原样保留；
+//   - 命中块用自身正文，邻居块经 fetch 按 (stored, idx) 取回；fetch 返回空（越界 / 不存在）时跳过；
+//   - 已被先前命中窗口覆盖的命中块去重跳过；相邻或重叠的窗口合并进同一扩展块，避免内容重复。
+//
+// fetch 由调用方注入（生产环境读 Redis，测试可注入桩），便于隔离存储依赖。
+func expandWithNeighbors(docs []*schema.Document, window int, fetch func(stored string, idx int) string) []*schema.Document {
+	if window <= 0 {
+		return docs
+	}
+	out := make([]*schema.Document, 0, len(docs))
+
+	// group 记录某个 stored 文档已输出的最近一个合并块及其覆盖的 chunk 闭区间，
+	// 用于跨命中去重（命中落在覆盖区内则跳过）与相邻合并（窗口相接则追加到同一块）。
+	type group struct {
+		lo, hi int
+		doc    *schema.Document
+		parts  []string
+	}
+	last := map[string]*group{}
+
+	for _, d := range docs {
+		stored, idx, ok := chunkLocator(d)
+		if !ok {
+			// 无法定位（存量旧文档）→ 原样保留，不做扩展。
+			out = append(out, d)
+			continue
+		}
+		g := last[stored]
+		if g != nil && idx >= g.lo && idx <= g.hi {
+			// 命中块已落在上一个合并块覆盖范围内 → 去重跳过。
+			continue
+		}
+		lo := idx - window
+		if lo < 0 {
+			lo = 0
+		}
+		hi := idx + window
+
+		// 与上一个合并块相邻或重叠 → 合并：仅向其追加尚未覆盖的邻居块，避免重复内容。
+		if g != nil && lo <= g.hi+1 && hi > g.hi {
+			for i := g.hi + 1; i <= hi; i++ {
+				if part := neighborPart(d, stored, i, idx, fetch); part != "" {
+					g.parts = append(g.parts, part)
+				}
+			}
+			g.hi = hi
+			g.doc.Content = strings.Join(g.parts, "\n")
+			continue
+		}
+
+		// 否则新建一个合并块：复制命中块（保留 source/headers 等元数据），正文换成窗口拼接结果。
+		nd := *d
+		ng := &group{lo: lo, hi: hi, doc: &nd}
+		for i := lo; i <= hi; i++ {
+			if part := neighborPart(d, stored, i, idx, fetch); part != "" {
+				ng.parts = append(ng.parts, part)
+			}
+		}
+		nd.Content = strings.Join(ng.parts, "\n")
+		last[stored] = ng
+		out = append(out, &nd)
+	}
+	return out
+}
+
+// neighborPart 取窗口内第 i 个 chunk 的文本：命中块用自身正文，邻居块经 fetch 取回；
+// 纯空白（越界 / 不存在）返回空串，由调用方跳过。
+func neighborPart(hit *schema.Document, stored string, i, hitIdx int, fetch func(string, int) string) string {
+	var part string
+	if i == hitIdx {
+		part = hit.Content
+	} else {
+		part = fetch(stored, i)
+	}
+	if strings.TrimSpace(part) == "" {
+		return ""
+	}
+	return part
 }
 
 // FilterByRerankScore 按精排最低分阈值过滤；阈值<=0 时不过滤。

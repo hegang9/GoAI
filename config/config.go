@@ -138,6 +138,17 @@ type RagModelConfig struct {
 	RagRerankTopK int `toml:"rerankTopK"`
 	// RagRerankMinScore 精排最低相关分阈值（越大越相关）；<=0 表示不按分数过滤。
 	RagRerankMinScore float64 `toml:"rerankMinScore"`
+	// RagEnableSemanticChunking 是否启用语义切分（句向量相似度断点）；默认关闭走递归/标题切分，
+	// 仅对新上传文档生效（newdocs_only），不迁移存量索引。
+	RagEnableSemanticChunking bool `toml:"enableSemanticChunking"`
+	// RagSemanticBreakpointPercentile 语义断点距离分位数阈值（0-100，越大切块越少）；<=0 时运行时默认 95。
+	RagSemanticBreakpointPercentile float64 `toml:"semanticBreakpointPercentile"`
+	// RagSemanticBufferSize 句向量滑窗每侧大小（>0 时用相邻句拼接稳定单句语义）；<0 时运行时默认 1。
+	RagSemanticBufferSize int `toml:"semanticBufferSize"`
+	// RagContextWindow 上下文增强：命中块前后各取 N 个邻居块拼接扩展上下文；默认 0=关闭。
+	RagContextWindow int `toml:"contextWindow"`
+	// RagEnableHeaderInjection 是否在块正文首部注入「来源｜章节」块头标签；默认关闭。
+	RagEnableHeaderInjection bool `toml:"enableHeaderInjection"`
 }
 
 // VoiceServiceConfig 语音服务配置（百度 TTS 文字转语音）。
