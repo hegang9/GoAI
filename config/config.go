@@ -149,6 +149,8 @@ type RagModelConfig struct {
 	RagContextWindow int `toml:"contextWindow"`
 	// RagEnableHeaderInjection 是否在块正文首部注入「来源｜章节」块头标签；默认关闭。
 	RagEnableHeaderInjection bool `toml:"enableHeaderInjection"`
+	// RagEnableFilterIntent 无显式过滤参数时，是否用 LLM 从对话解析来源文档/章节过滤意图；默认关闭。
+	RagEnableFilterIntent bool `toml:"enableFilterIntent"`
 }
 
 // VoiceServiceConfig 语音服务配置（百度 TTS 文字转语音）。

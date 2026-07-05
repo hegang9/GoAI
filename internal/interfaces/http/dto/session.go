@@ -19,6 +19,10 @@ type GetUserSessionsResponse struct {
 type CreateSessionRequest struct {
 	UserQuestion string `json:"question" binding:"required"`
 	ModelType    string `json:"modelType" binding:"required"`
+	// StoredName 可选：限定只检索某来源文档；为空时不过滤。
+	StoredName string `json:"storedName,omitempty"`
+	// Headers 可选：限定章节路径关键字；为空时不过滤。
+	Headers string `json:"headers,omitempty"`
 }
 
 type CreateSessionResponse struct {
@@ -30,6 +34,10 @@ type ChatSendRequest struct {
 	UserQuestion string `json:"question" binding:"required"`
 	ModelType    string `json:"modelType" binding:"required"`
 	SessionID    string `json:"sessionId" binding:"required"`
+	// StoredName 可选：限定只检索某来源文档；为空时不过滤。
+	StoredName string `json:"storedName,omitempty"`
+	// Headers 可选：限定章节路径关键字；为空时不过滤。
+	Headers string `json:"headers,omitempty"`
 }
 
 type ChatSendResponse struct {

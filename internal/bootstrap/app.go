@@ -140,6 +140,7 @@ func New() (*App, error) {
 		APIKey:             conf.AIModelConfig.APIKey,
 		MCPBaseURL:         mcpBaseURL,
 		EnableQueryRewrite: conf.RagEnableQueryRewrite,
+		EnableFilterIntent: conf.RagEnableFilterIntent,
 	}, ragEngine)
 
 	// —— 消息队列（RabbitMQ）：发布端作为会话消息 Sink，消费端落库 ——

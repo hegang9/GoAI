@@ -25,6 +25,8 @@ type FactoryConfig struct {
 	MCPBaseURL string
 	// EnableQueryRewrite RAG 模型是否启用多轮 query 改写。
 	EnableQueryRewrite bool
+	// EnableFilterIntent RAG 模型无显式过滤参数时是否用 LLM 解析过滤意图。
+	EnableFilterIntent bool
 }
 
 // Factory 实现 domain/chat.ModelFactory 端口：按模型类型创建具体模型实现。
@@ -54,7 +56,7 @@ func (f *Factory) Create(ctx context.Context, modelType string, params map[strin
 		if !ok {
 			return nil, fmt.Errorf("RAG model requires account_no")
 		}
-		return NewRAGModel(ctx, accountNo, f.cfg.ChatModelName, f.cfg.BaseURL, f.cfg.APIKey, f.cfg.EnableQueryRewrite, f.engine)
+		return NewRAGModel(ctx, accountNo, f.cfg.ChatModelName, f.cfg.BaseURL, f.cfg.APIKey, f.cfg.EnableQueryRewrite, f.cfg.EnableFilterIntent, f.engine)
 	case "3":
 		accountNo, ok := params["account_no"].(string)
 		if !ok {

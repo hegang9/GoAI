@@ -84,7 +84,9 @@ func (s *Service) GetUserSessions(ctx context.Context, accountNo string) ([]Sess
 }
 
 // CreateSessionAndSend 创建新会话并发送首条消息，返回 AI 回复与会话 ID。
-func (s *Service) CreateSessionAndSend(ctx context.Context, accountNo, question, modelType string) (AIResult, code.Code) {
+//
+// filter 为可选的 RAG 检索过滤范围（限定来源文档/章节）；非 RAG 模型会忽略它。
+func (s *Service) CreateSessionAndSend(ctx context.Context, accountNo, question, modelType string, filter domainchat.RAGFilter) (AIResult, code.Code) {
 	session, errCode := s.createSession(ctx, accountNo, question)
 	if errCode != code.CodeSuccess {
 		return AIResult{}, errCode
@@ -96,7 +98,7 @@ func (s *Service) CreateSessionAndSend(ctx context.Context, accountNo, question,
 		return AIResult{}, code.AIModelFail
 	}
 
-	content, err := conv.Generate(ctx, accountNo, question)
+	content, err := conv.Generate(ctx, accountNo, question, filter)
 	if err != nil {
 		logger.Error("CreateSessionAndSend Generate failed", "err", err)
 		return AIResult{}, code.AIModelFail
@@ -115,7 +117,9 @@ func (s *Service) CreateStreamSession(ctx context.Context, accountNo, question s
 
 // StreamToSession 向已有会话发送消息并以流式方式产出 AI 回复。
 // 发送前先 ensureSessionLoaded，确保冷会话的历史上下文已从 DB 加载到内存。
-func (s *Service) StreamToSession(ctx context.Context, accountNo, sessionID, question, modelType string, onChunk func(chunk string)) code.Code {
+//
+// filter 为可选的 RAG 检索过滤范围（限定来源文档/章节）。
+func (s *Service) StreamToSession(ctx context.Context, accountNo, sessionID, question, modelType string, filter domainchat.RAGFilter, onChunk func(chunk string)) code.Code {
 	if err := s.ensureSessionLoaded(ctx, accountNo, sessionID, modelType); err != nil {
 		return code.CodeServerBusy
 	}
@@ -125,7 +129,7 @@ func (s *Service) StreamToSession(ctx context.Context, accountNo, sessionID, que
 		logger.Error("StreamToSession GetOrCreate failed", "err", err)
 		return code.AIModelFail
 	}
-	if _, err := conv.Stream(ctx, accountNo, question, onChunk); err != nil {
+	if _, err := conv.Stream(ctx, accountNo, question, filter, onChunk); err != nil {
 		logger.Error("StreamToSession Stream failed", "err", err)
 		return code.AIModelFail
 	}
@@ -134,7 +138,9 @@ func (s *Service) StreamToSession(ctx context.Context, accountNo, sessionID, que
 
 // ChatSend 向已有会话发送单轮消息并返回完整 AI 回复。
 // 发送前先 ensureSessionLoaded，确保 AI 生成时能拿到完整会话历史。
-func (s *Service) ChatSend(ctx context.Context, accountNo, sessionID, question, modelType string) (AIResult, code.Code) {
+//
+// filter 为可选的 RAG 检索过滤范围（限定来源文档/章节）。
+func (s *Service) ChatSend(ctx context.Context, accountNo, sessionID, question, modelType string, filter domainchat.RAGFilter) (AIResult, code.Code) {
 	if err := s.ensureSessionLoaded(ctx, accountNo, sessionID, modelType); err != nil {
 		return AIResult{}, code.CodeServerBusy
 	}
@@ -144,7 +150,7 @@ func (s *Service) ChatSend(ctx context.Context, accountNo, sessionID, question, 
 		logger.Error("ChatSend GetOrCreate failed", "err", err)
 		return AIResult{}, code.AIModelFail
 	}
-	content, err := conv.Generate(ctx, accountNo, question)
+	content, err := conv.Generate(ctx, accountNo, question, filter)
 	if err != nil {
 		logger.Error("ChatSend Generate failed", "err", err)
 		return AIResult{}, code.AIModelFail

@@ -72,6 +72,8 @@ semanticBufferSize = 1
 contextWindow = 0
 # 是否在块正文首部注入「来源｜章节」块头标签（默认关闭，仅对新文档生效）
 enableHeaderInjection = false
+# 无显式过滤参数时，是否用 LLM 从对话解析来源文档/章节过滤意图（默认关闭）
+enableFilterIntent = false
 
 [voiceServiceConfig]
 voiceServiceApiKey = "baiduApiKey"
