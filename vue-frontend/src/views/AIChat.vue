@@ -41,6 +41,18 @@
           <input type="checkbox" id="streamingMode" v-model="isStreaming" />
           流式响应
         </label>
+        <label for="docFilter" style="margin-left: 20px">检索范围：</label>
+        <select
+          id="docFilter"
+          v-model="selectedDoc"
+          class="model-select"
+          :disabled="ragFiles.length === 0"
+        >
+          <option value="">全知识库</option>
+          <option v-for="name in ragFiles" :key="name" :value="name">
+            {{ name }}
+          </option>
+        </select>
         <button
           class="upload-btn"
           @click="triggerFileUpload"
@@ -131,6 +143,10 @@ export default {
     const isStreaming = ref(false);
     const uploading = ref(false);
     const fileInput = ref(null);
+    // 已上传的 RAG 知识库文档名列表，用于「检索范围」下拉选择。
+    const ragFiles = ref([]);
+    // 当前选定的检索范围文档名；"" 表示不过滤（全知识库检索）。
+    const selectedDoc = ref("");
 
     const renderMarkdown = (text) => {
       if (!text && text !== "") return "";
@@ -392,12 +408,15 @@ export default {
         Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
       };
 
+      // selectedDoc 非空时作为 storedName 传入，限定检索范围；为空则不过滤。
+      const filter = selectedDoc.value ? {storedName: selectedDoc.value} : {};
       const body = tempSession.value
-        ? {question: question, modelType: selectedModel.value}
+        ? {question: question, modelType: selectedModel.value, ...filter}
         : {
             question: question,
             modelType: selectedModel.value,
             sessionId: currentSessionId.value,
+            ...filter,
           };
 
       try {
@@ -532,6 +551,7 @@ export default {
         const response = await api.post("/ai/chat/send-new-session", {
           question: question,
           modelType: selectedModel.value,
+          ...(selectedDoc.value ? {storedName: selectedDoc.value} : {}),
         });
         if (response.data && response.data.status_code === 1000) {
           const sessionId = String(response.data.sessionId);
@@ -562,6 +582,7 @@ export default {
           question: question,
           modelType: selectedModel.value,
           sessionId: currentSessionId.value,
+          ...(selectedDoc.value ? {storedName: selectedDoc.value} : {}),
         });
         if (response.data && response.data.status_code === 1000) {
           const aiMessage = {
@@ -622,6 +643,8 @@ export default {
 
         if (response.data && response.data.status_code === 1000) {
           ElMessage.success(`文件上传成功`);
+          // 上传成功后刷新知识库文档列表，使新文档出现在「检索范围」下拉中。
+          await loadRagFiles();
         } else {
           ElMessage.error(response.data?.status_msg || "上传失败");
         }
@@ -637,8 +660,22 @@ export default {
       }
     };
 
+    // loadRagFiles 从后端拉取当前账号已上传的 RAG 文档名列表。
+    // 失败时静默保留空列表，不影响对话功能。
+    const loadRagFiles = async () => {
+      try {
+        const response = await api.get("/file/list");
+        if (response.data && response.data.status_code === 1000) {
+          ragFiles.value = response.data.files || [];
+        }
+      } catch (error) {
+        console.error("Load rag files error:", error);
+      }
+    };
+
     onMounted(() => {
       loadSessions();
+      loadRagFiles();
     });
 
     // expose to template
@@ -655,6 +692,9 @@ export default {
       isStreaming,
       uploading,
       fileInput,
+      ragFiles,
+      selectedDoc,
+      loadRagFiles,
       renderMarkdown,
       playTTS,
       createNewSession,

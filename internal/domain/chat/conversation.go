@@ -70,11 +70,16 @@ func (c *Conversation) Messages() []Message {
 }
 
 // Generate 追加用户问题、驱动模型生成同步回复，并把回复写回历史。
-func (c *Conversation) Generate(ctx context.Context, accountNo, question string) (string, error) {
+//
+// filter 为 RAG 检索的元数据过滤范围；非 RAG 模型会忽略它。
+// 通过 WithRetrieveFilter 携带进 ctx，由 RAGModel 取出，避免修改通用 Model 端口签名。
+func (c *Conversation) Generate(ctx context.Context, accountNo, question string, filter RAGFilter) (string, error) {
 	if err := c.AddMessage(question, accountNo, true, true); err != nil {
 		return "", err
 	}
 
+	// 把过滤意图塞进 ctx，RAGModel 从 ctx 取出；非 RAG 模型对 ctx 内的 filter 无感。
+	ctx = WithRetrieveFilter(ctx, filter)
 	content, err := c.model.Generate(ctx, c.Messages())
 	if err != nil {
 		return "", err
@@ -87,11 +92,15 @@ func (c *Conversation) Generate(ctx context.Context, accountNo, question string)
 }
 
 // Stream 追加用户问题、驱动模型流式生成，分片透传给 cb，并把完整回复写回历史。
-func (c *Conversation) Stream(ctx context.Context, accountNo, question string, cb StreamCallback) (string, error) {
+//
+// filter 为 RAG 检索的元数据过滤范围；通过 WithRetrieveFilter 携带进 ctx。
+func (c *Conversation) Stream(ctx context.Context, accountNo, question string, filter RAGFilter, cb StreamCallback) (string, error) {
 	if err := c.AddMessage(question, accountNo, true, true); err != nil {
 		return "", err
 	}
 
+	// 把过滤意图塞进 ctx，RAGModel 从 ctx 取出；非 RAG 模型对 ctx 内的 filter 无感。
+	ctx = WithRetrieveFilter(ctx, filter)
 	content, err := c.model.Stream(ctx, c.Messages(), cb)
 	if err != nil {
 		return "", err

@@ -14,6 +14,7 @@ import (
 	redisIndexer "github.com/cloudwego/eino-ext/components/indexer/redis"
 	redisRetriever "github.com/cloudwego/eino-ext/components/retriever/redis"
 	"github.com/cloudwego/eino/components/embedding"
+	"github.com/cloudwego/eino/components/retriever"
 	"github.com/cloudwego/eino/schema"
 	redisCli "github.com/redis/go-redis/v9"
 )
@@ -260,6 +261,71 @@ func (e *Engine) DeleteAll(ctx context.Context, accountNo string) error {
 	return nil
 }
 
+// RetrieveFilter 描述检索期的元数据过滤范围，用于缩小检索范围。
+//
+// 两个字段可同时设置（AND 关系），也可都为空（不过滤，行为与改动前完全一致），
+// 由调用方（如 ai/rag.go）根据用户意图或请求参数构造。
+type RetrieveFilter struct {
+	// StoredName 限定只检索某个来源文档；为空时不限来源。
+	// 对应索引中 stored TAG 字段，走 @stored:{name} 精确匹配。
+	StoredName string
+	// Headers 限定章节路径关键字；为空时不限章节。
+	// 对应索引中 headers TEXT 字段，走 @headers:keyword 模糊匹配。
+	Headers string
+}
+
+// toFilterExpr 把过滤参数转换为 RediSearch 的 FILTER 查询表达式。
+//
+// 多个条件之间用空格连接（RediSearch 中空格 = AND）；
+// 为空时返回空串，调用方据此跳过 WithFilterQuery，避免传空过滤表达式。
+func (f RetrieveFilter) toFilterExpr() string {
+	var parts []string
+	if f.StoredName != "" {
+		// stored 是 TAG 字段，用 @{field}:{value} 语法精确匹配；
+		// TAG 值含特殊字符会破坏查询语法，故先经 escapeTag 转义。
+		parts = append(parts, fmt.Sprintf("@stored:{%s}", escapeTag(f.StoredName)))
+	}
+	if f.Headers != "" {
+		// headers 是 TEXT 字段，用 @{field}:keyword 语法模糊匹配章节路径；
+		// TEXT 查询保留字符（:(){}[]"'^~* 等）会改变查询语义，需经 escapeText 转义。
+		parts = append(parts, fmt.Sprintf("@headers:%s", escapeText(f.Headers)))
+	}
+	return strings.Join(parts, " ")
+}
+
+// rediSearchTagSpecialChars 是 TAG 值中需要反斜杠转义的保留字符集合。
+// 这些字符在 RediSearch TAG 查询里有语法含义（如 {} 包围值、, 分隔多值），
+// 若原样出现会破坏查询语法或造成注入风险。
+const rediSearchTagSpecialChars = `,.<>{}[]"':;!@#$%^&*()-+=~`
+
+// escapeTag 转义 TAG 字段值，使其可安全地放入 @{field}:{value} 表达式。
+func escapeTag(s string) string {
+	return escapeChars(s, rediSearchTagSpecialChars)
+}
+
+// rediSearchTextSpecialChars 是 TEXT 全文查询中需要转义的保留字符集合。
+// 这些字符在 RediSearch 查询语法中有特殊含义（如 : 分隔字段与值、* 通配、() 分组），
+// 章节路径中一般不含这些字符，转义是为防御异常输入。
+const rediSearchTextSpecialChars = `:.,<>(){}[]"'^~*+-=!@#$%&|/\`
+
+// escapeText 转义 TEXT 字段查询值，使其作为字面量参与全文匹配而非被当作查询语法。
+func escapeText(s string) string {
+	return escapeChars(s, rediSearchTextSpecialChars)
+}
+
+// escapeChars 对 s 中所有出现在 specialChars 中的字符加反斜杠前缀。
+// 使用 strings.Builder 避免高频字符串拼接的开销。
+func escapeChars(s, specialChars string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if strings.ContainsRune(specialChars, r) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 // Retrieve 基于账号知识库检索与 query 最相关的文档块，返回拼装后的提示词。
 //
 // 两阶段检索：向量召回（粗排，启用精排时放大到 RecallTopK）→ 距离粗筛
@@ -270,7 +336,11 @@ func (e *Engine) DeleteAll(ctx context.Context, accountNo string) error {
 //   - hasContext=false：无相关内容（无索引/召回为空/全部超阈值），调用方应回退到原始查询。
 //
 // 任何错误均非致命，调用方应回退到原始查询；精排失败时自动降级为向量排序，不中断链路。
-func (e *Engine) Retrieve(ctx context.Context, accountNo, query string) (prompt string, hasContext bool, err error) {
+//
+// 参数 f 为元数据过滤范围；传入零值 RetrieveFilter{} 表示不过滤，行为与改动前一致。
+// 过滤条件经 toFilterExpr 转换为 RediSearch FILTER 子句，在向量召回阶段就生效（pre-filter），
+// 缩小检索范围后再参与距离粗筛与精排。
+func (e *Engine) Retrieve(ctx context.Context, accountNo, query string, f RetrieveFilter) (prompt string, hasContext bool, err error) {
 	// 是否本次实际启用精排：需同时满足配置开启与注入了精排器。
 	rerankActive := e.cfg.RerankEnable && e.reranker != nil
 
@@ -309,8 +379,16 @@ func (e *Engine) Retrieve(ctx context.Context, accountNo, query string) (prompt 
 		return "", false, fmt.Errorf("failed to create retriever: %w", err)
 	}
 
-	// 真正执行检索
-	docs, err := rtr.Retrieve(ctx, query)
+	// 构造检索选项：WithFilterQuery 是 eino-ext redis retriever 提供的过滤选项，
+	// 其返回类型为 retriever.Option（eino 通用检索器选项），而非 redisRetriever 自有类型。
+	// 仅在存在过滤表达式时附加，避免传空串导致查询语义异常。
+	opts := []retriever.Option{}
+	if expr := f.toFilterExpr(); expr != "" {
+		opts = append(opts, redisRetriever.WithFilterQuery(expr))
+	}
+
+	// 真正执行检索（过滤条件通过 opts 透传给底层 FT.SEARCH 的 FILTER 子句）
+	docs, err := rtr.Retrieve(ctx, query, opts...)
 	if err != nil {
 		return "", false, fmt.Errorf("failed to retrieve documents: %w", err)
 	}

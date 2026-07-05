@@ -74,7 +74,13 @@ func (v *VectorStore) InitIndex(ctx context.Context, accountNo string, dimension
 
 	logger.Info("creating vector index", "index", indexName)
 	prefix := v.AccountPrefix(accountNo)
-	// 组装创建索引命令
+	// 组装创建索引命令。
+	// 除向量字段外，额外声明可用于检索期 pre-filter 的可过滤字段：
+	//   - stored  TAG     按"来源文档名"精确匹配（RetrieveFilter.StoredName 走 @stored:{...}）；
+	//   - chunk   NUMERIC 按"块序号"范围过滤（供上下文增强邻居块定位，也可显式限定块范围）；
+	//   - headers TEXT    按"章节路径"模糊匹配（RetrieveFilter.Headers 走 @headers:...）。
+	// 注意：这些字段在旧版只写入 HASH 未入 SCHEMA，RediSearch 不会为其建倒排，无法过滤；
+	// 加入 SCHEMA 后才支持 FILTER 子句。schema 变更要求重建索引（见迁移策略）。
 	createArgs := []interface{}{
 		"FT.CREATE", indexName,
 		"ON", "HASH",
@@ -82,6 +88,9 @@ func (v *VectorStore) InitIndex(ctx context.Context, accountNo string, dimension
 		"SCHEMA",
 		"content", "TEXT",
 		"metadata", "TEXT",
+		"stored", "TAG",
+		"chunk", "NUMERIC",
+		"headers", "TEXT",
 		"vector", "VECTOR", "FLAT",
 		"6",
 		"TYPE", "FLOAT32",

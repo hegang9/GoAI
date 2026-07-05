@@ -43,7 +43,7 @@ func TestConversationGeneratePersistsUserAndAIMessages(t *testing.T) {
 	sink := &fakeSink{}
 	conv := chat.NewConversation(model, "session-1", sink)
 
-	content, err := conv.Generate(context.Background(), "acc-1", "你好")
+	content, err := conv.Generate(context.Background(), "acc-1", "你好", chat.RAGFilter{})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}

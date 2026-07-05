@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -21,16 +22,17 @@ const rewriteHistoryWindow = 6
 
 // RAGModel 在普通对话外层叠加检索增强，实现 domain/chat.Model 端口。
 type RAGModel struct {
-	llm           einomodel.ToolCallingChatModel
-	accountNo     string
-	engine        *raginfra.Engine
-	enableRewrite bool // 是否在多轮对话中用 LLM 改写检索 query
+	llm                einomodel.ToolCallingChatModel
+	accountNo          string
+	engine             *raginfra.Engine
+	enableRewrite      bool // 是否在多轮对话中用 LLM 改写检索 query
+	enableFilterIntent bool // 无显式过滤参数时是否用 LLM 从对话解析过滤意图
 }
 
 // NewRAGModel 创建 RAG 模型实例。
 //
 // apiKey 来自统一配置；enableRewrite 控制是否启用多轮 query 改写。
-func NewRAGModel(ctx context.Context, accountNo, modelName, baseURL, apiKey string, enableRewrite bool, engine *raginfra.Engine) (*RAGModel, error) {
+func NewRAGModel(ctx context.Context, accountNo, modelName, baseURL, apiKey string, enableRewrite, enableFilterIntent bool, engine *raginfra.Engine) (*RAGModel, error) {
 	llm, err := openaiext.NewChatModel(ctx, &openaiext.ChatModelConfig{
 		BaseURL: baseURL,
 		Model:   modelName,
@@ -40,8 +42,10 @@ func NewRAGModel(ctx context.Context, accountNo, modelName, baseURL, apiKey stri
 		logger.Error("NewRAGModel failed", "accountNo", accountNo, "err", err)
 		return nil, fmt.Errorf("create rag model failed: %v", err)
 	}
-	logger.Info("NewRAGModel success", "accountNo", accountNo, "model", modelName, "enableRewrite", enableRewrite)
-	return &RAGModel{llm: llm, accountNo: accountNo, engine: engine, enableRewrite: enableRewrite}, nil
+	logger.Info("NewRAGModel success", "accountNo", accountNo, "model", modelName,
+		"enableRewrite", enableRewrite, "enableFilterIntent", enableFilterIntent)
+	return &RAGModel{llm: llm, accountNo: accountNo, engine: engine,
+		enableRewrite: enableRewrite, enableFilterIntent: enableFilterIntent}, nil
 }
 
 // 编译期断言：RAGModel 必须满足领域模型端口。
@@ -109,7 +113,16 @@ func (o *RAGModel) buildRAGMessages(ctx context.Context, messages []*schema.Mess
 		query = o.rewriteQuery(ctx, messages)
 	}
 
-	prompt, hasContext, err := o.engine.Retrieve(ctx, o.accountNo, query)
+	// 过滤意图来源：① ctx 携带的显式过滤参数（由 controller/service 传入）优先；
+	// ② 显式为空且开启意图解析时，用 LLM 从对话解析兜底；③ 两者都空则不过滤。
+	// 领域 RAGFilter 在此转换为 infrastructure 的 RetrieveFilter，保持分层解耦。
+	filter := chat.RetrieveFilterFromCtx(ctx)
+	if filter.IsEmpty() && o.enableFilterIntent {
+		filter = o.parseFilterIntent(ctx, query)
+	}
+	engineFilter := raginfra.RetrieveFilter{StoredName: filter.StoredName, Headers: filter.Headers}
+
+	prompt, hasContext, err := o.engine.Retrieve(ctx, o.accountNo, query, engineFilter)
 	if err != nil {
 		logger.Warn("RAGModel retrieve failed", "accountNo", o.accountNo, "err", err)
 		return messages
@@ -164,6 +177,53 @@ func (o *RAGModel) rewriteQuery(ctx context.Context, messages []*schema.Message)
 	}
 	logger.Info("RAGModel rewriteQuery", "accountNo", o.accountNo, "original", original, "rewritten", rewritten)
 	return rewritten
+}
+
+
+// parseFilterIntent 用 LLM 从用户查询中解析检索过滤意图（来源文档名 / 章节关键字）。
+//
+// 用于显式过滤参数缺失时的兜底：用户在自然语言中可能指明"基于 report.docx 回答"，
+// LLM 提取为结构化 {storedName, headers}。解析失败或 LLM 不可用时返回零值（不过滤），
+// 保证不中断 RAG 链路。输出要求严格 JSON，避免污染查询语法。
+func (o *RAGModel) parseFilterIntent(ctx context.Context, query string) chat.RAGFilter {
+	intentPrompt := `你是检索过滤意图解析器。从用户的查询中提取"来源文档名"和"章节关键字"两个过滤意图。
+规则：
+- 只输出一个 JSON 对象，不要解释，不要加 markdown 代码块标记。
+- 字段：storedName（来源文档文件名，含扩展名，如 report.md；无则空串）、headers（章节路径关键字，如"安装指南"；无则空串）。
+- 若用户未指明来源或章节，两个字段都输出空串。
+- 文档名只在实际被点名时填写，不要臆测。
+
+用户查询：%s
+
+输出 JSON：`
+
+	resp, err := o.llm.Generate(ctx, []*schema.Message{
+		{Role: schema.User, Content: fmt.Sprintf(intentPrompt, query)},
+	})
+	if err != nil {
+		logger.Warn("RAGModel parseFilterIntent failed, fallback to no filter", "accountNo", o.accountNo, "err", err)
+		return chat.RAGFilter{}
+	}
+
+	// 容错解析：LLM 可能输出多余文本，提取首个 { 到 } 的子串作为 JSON。
+	body := strings.TrimSpace(resp.Content)
+	lo := strings.Index(body, "{")
+	hi := strings.LastIndex(body, "}")
+	if lo < 0 || hi <= lo {
+		logger.Warn("RAGModel parseFilterIntent no JSON found", "accountNo", o.accountNo, "raw", body)
+		return chat.RAGFilter{}
+	}
+	var parsed struct {
+		StoredName string `json:"storedName"`
+		Headers    string `json:"headers"`
+	}
+	if err := json.Unmarshal([]byte(body[lo:hi+1]), &parsed); err != nil {
+		logger.Warn("RAGModel parseFilterIntent unmarshal failed", "accountNo", o.accountNo, "err", err)
+		return chat.RAGFilter{}
+	}
+	logger.Info("RAGModel parseFilterIntent", "accountNo", o.accountNo,
+		"query", query, "storedName", parsed.StoredName, "headers", parsed.Headers)
+	return chat.RAGFilter{StoredName: parsed.StoredName, Headers: parsed.Headers}
 }
 
 // Type 返回模型类型标识。
