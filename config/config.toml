@@ -49,31 +49,31 @@ topK = 5
 # 召回结果允许的最大向量距离（COSINE，越小越相关），超出视为不相关
 maxDistance = 0.6
 # 是否在多轮对话中用 LLM 把追问改写为自包含检索 query
-enableQueryRewrite = false
+enableQueryRewrite = true
 # 是否启用精排（reranker）：召回放大 → 交叉编码重排 → 截断 TopN；关闭则回到纯向量排序
-rerankEnable = false
+rerankEnable = true
 # 重排模型名称（启用精排时生效）
 rerankModel = "doubao-rerank"
 # 重排服务完整地址（含 path），按所选服务填写
 rerankBaseUrl = "https://your-rerank-endpoint/rerank"
 # 启用精排时的召回候选数（粗排放大），建议 20~50（<=0 默认 20）
-recallTopK = 20
+recallTopK = 25
 # 精排后保留的文档数（<=0 时沿用 topK）
 rerankTopK = 5
 # 精排最低相关分阈值（越大越相关），0 表示不按分数过滤
 rerankMinScore = 0.0
 # 是否启用语义切分（句向量相似度断点）：开启后仅对新上传文档生效，不迁移存量索引；关闭走递归/标题切分
-enableSemanticChunking = false
+enableSemanticChunking = true
 # 语义断点距离分位数阈值（0-100，越大切块越少；<=0 或 >100 默认 95）
 semanticBreakpointPercentile = 95.0
 # 句向量滑窗每侧大小（>0 时用相邻句拼接稳定单句语义；<0 默认 1）
 semanticBufferSize = 1
 # 上下文增强：命中块前后各取 N 个邻居块拼接扩展上下文（0=关闭）
-contextWindow = 0
+contextWindow = 2
 # 是否在块正文首部注入「来源｜章节」块头标签（默认关闭，仅对新文档生效）
-enableHeaderInjection = false
+enableHeaderInjection = true
 # 无显式过滤参数时，是否用 LLM 从对话解析来源文档/章节过滤意图（默认关闭）
-enableFilterIntent = false
+enableFilterIntent = true
 
 [voiceServiceConfig]
 voiceServiceApiKey = "baiduApiKey"

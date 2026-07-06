@@ -2,10 +2,102 @@ package rag
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/eino/schema"
 )
+
+// ---------------------------------------------------------------------------
+// toFilterExpr / escapeTag / escapeText 单测
+// ---------------------------------------------------------------------------
+
+// TestToFilterExpr_Empty 两个字段都为空时返回空串，调用方据此跳过 WithFilterQuery。
+func TestToFilterExpr_Empty(t *testing.T) {
+	t.Parallel()
+	if got := (RetrieveFilter{}).toFilterExpr(); got != "" {
+		t.Fatalf("empty filter should yield empty expr, got %q", got)
+	}
+}
+
+// TestToFilterExpr_StoredOnly 仅限定来源文档时，输出 @stored:{name} 精确匹配。
+func TestToFilterExpr_StoredOnly(t *testing.T) {
+	t.Parallel()
+	got := RetrieveFilter{StoredName: "report.md"}.toFilterExpr()
+	want := `@stored:{report\.md}`
+	if got != want {
+		t.Fatalf("stored only = %q, want %q", got, want)
+	}
+}
+
+// TestToFilterExpr_HeadersOnly 仅限定章节时，输出 @headers:keyword 模糊匹配。
+func TestToFilterExpr_HeadersOnly(t *testing.T) {
+	t.Parallel()
+	got := RetrieveFilter{Headers: "安装指南"}.toFilterExpr()
+	want := "@headers:安装指南"
+	if got != want {
+		t.Fatalf("headers only = %q, want %q", got, want)
+	}
+}
+
+// TestToFilterExpr_Both 两个字段同时设置时用空格拼接（AND 语义）。
+func TestToFilterExpr_Both(t *testing.T) {
+	t.Parallel()
+	got := RetrieveFilter{StoredName: "doc.txt", Headers: "第一章"}.toFilterExpr()
+	if !strings.HasPrefix(got, "@stored:{") || !strings.Contains(got, " @headers:") {
+		t.Fatalf("both fields should produce AND expr, got %q", got)
+	}
+}
+
+// TestEscapeTag 验证 TAG 值中的 RediSearch 保留字符被反斜杠转义。
+func TestEscapeTag(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in, want string
+	}{
+		{"simple", "simple"},
+		{"file.txt", `file\.txt`},
+		{"a,b", `a\,b`},
+		{"a{b}c", `a\{b\}c`},
+		{"report (v2).md", `report \(v2\)\.md`},
+		{"a:b@c#d", `a\:b\@c\#d`},
+	}
+	for _, tc := range cases {
+		if got := escapeTag(tc.in); got != tc.want {
+			t.Errorf("escapeTag(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestEscapeText 验证 TEXT 查询值中的 RediSearch 保留字符被反斜杠转义。
+func TestEscapeText(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in, want string
+	}{
+		{"普通中文", "普通中文"},
+		{"foo:bar", `foo\:bar`},
+		{"a*b", `a\*b`},
+		{"(hello)", `\(hello\)`},
+		{`path\to`, `path\\to`},
+		{"a|b", `a\|b`},
+	}
+	for _, tc := range cases {
+		if got := escapeText(tc.in); got != tc.want {
+			t.Errorf("escapeText(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestToFilterExpr_SpecialCharsInStored 验证含保留字符的文档名经转义后不破坏查询语法。
+func TestToFilterExpr_SpecialCharsInStored(t *testing.T) {
+	t.Parallel()
+	f := RetrieveFilter{StoredName: "my{doc}.txt"}
+	got := f.toFilterExpr()
+	if !strings.Contains(got, `my\{doc\}\.txt`) {
+		t.Fatalf("special chars in stored should be escaped, got %q", got)
+	}
+}
 
 // TestChunkLocator 校验从元数据解析 (stored, chunk)，兼容 int / string 两种 chunk 类型，
 // 缺字段时返回 ok=false。
