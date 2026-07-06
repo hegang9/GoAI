@@ -1,5 +1,22 @@
 # 前端依赖（通过 npm install 安装，勿提交）
 node_modules/
+# 前端构建产物（npm run build 生成，勿提交）
+vue-frontend/dist/
 docker-compose.yml
 .DS_Store
+<<<<<<< HEAD
 docs/image.png
+=======
+
+# IDE 配置（个人本地配置，勿提交）
+.vscode/
+.idea/
+
+# 本地环境与工具版本（勿提交）
+.envrc
+.tool-versions
+.go-version
+
+# AI 协作临时产物（勿提交）
+.claude/
+>>>>>>> 11eaafeabc46a8b7ac97a2a08d79f7730a095e78

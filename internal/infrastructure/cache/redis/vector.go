@@ -74,7 +74,13 @@ func (v *VectorStore) InitIndex(ctx context.Context, accountNo string, dimension
 
 	logger.Info("creating vector index", "index", indexName)
 	prefix := v.AccountPrefix(accountNo)
-	// 组装创建索引命令
+	// 组装创建索引命令。
+	// 除向量字段外，额外声明可用于检索期 pre-filter 的可过滤字段：
+	//   - stored  TAG     按"来源文档名"精确匹配（RetrieveFilter.StoredName 走 @stored:{...}）；
+	//   - chunk   NUMERIC 按"块序号"范围过滤（供上下文增强邻居块定位，也可显式限定块范围）；
+	//   - headers TEXT    按"章节路径"模糊匹配（RetrieveFilter.Headers 走 @headers:...）。
+	// 注意：这些字段在旧版只写入 HASH 未入 SCHEMA，RediSearch 不会为其建倒排，无法过滤；
+	// 加入 SCHEMA 后才支持 FILTER 子句。schema 变更要求重建索引（见迁移策略）。
 	createArgs := []interface{}{
 		"FT.CREATE", indexName,
 		"ON", "HASH",
@@ -82,6 +88,9 @@ func (v *VectorStore) InitIndex(ctx context.Context, accountNo string, dimension
 		"SCHEMA",
 		"content", "TEXT",
 		"metadata", "TEXT",
+		"stored", "TAG",
+		"chunk", "NUMERIC",
+		"headers", "TEXT",
 		"vector", "VECTOR", "FLAT",
 		"6",
 		"TYPE", "FLOAT32",
@@ -93,6 +102,48 @@ func (v *VectorStore) InitIndex(ctx context.Context, accountNo string, dimension
 	}
 	logger.Info("vector index created", "index", indexName)
 	return nil
+}
+
+// GetNeighborChunk 按确定性 key 取回某个文档指定序号块的正文，用于检索期的上下文增强（取回邻居块）。
+//
+// key 由账号前缀 + storedName + chunk_N 确定性拼接（storedName 为 uuid 不含 ":"）：
+//
+//	rag_docs:{accountNo}:{storedName}:chunk_{idx}
+//
+// 块不存在（越界 / 存量旧文档）时返回空串且 err 为 nil，由调用方安全跳过（优雅降级）。
+func (v *VectorStore) GetNeighborChunk(ctx context.Context, accountNo, storedName string, idx int) (string, error) {
+	if idx < 0 {
+		logger.Debug("neighbor chunk skipped: negative index",
+			"accountNo", accountNo,
+			"storedName", storedName,
+			"chunk", idx)
+		return "", nil
+	}
+	key := fmt.Sprintf("%s%s:chunk_%d", v.AccountPrefix(accountNo), storedName, idx)
+	logger.Debug("neighbor chunk fetch start",
+		"accountNo", accountNo,
+		"storedName", storedName,
+		"chunk", idx,
+		"key", key)
+	val, err := v.client.HGet(ctx, key, "content").Result()
+	if err == redisCli.Nil {
+		logger.Debug("neighbor chunk missing",
+			"accountNo", accountNo,
+			"storedName", storedName,
+			"chunk", idx,
+			"key", key)
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("取回邻居块失败: %w", err)
+	}
+	logger.Debug("neighbor chunk fetched",
+		"accountNo", accountNo,
+		"storedName", storedName,
+		"chunk", idx,
+		"key", key,
+		"contentLen", len([]rune(val)))
+	return val, nil
 }
 
 // DeleteDocVectors 删除指定账号下某个文档的全部向量数据（保留账号索引本身）。

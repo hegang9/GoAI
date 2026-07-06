@@ -122,6 +122,12 @@ func New() (*App, error) {
 		RerankTopK:     conf.RagRerankTopK,
 		RerankEnable:   conf.RagRerankEnable,
 		RerankMinScore: conf.RagRerankMinScore,
+		// 文档分块与索引升级（默认关闭，仅对新上传文档生效）：
+		EnableSemanticChunking: conf.RagEnableSemanticChunking,
+		SemanticPercentile:     conf.RagSemanticBreakpointPercentile,
+		SemanticBufferSize:     conf.RagSemanticBufferSize,
+		ContextWindow:          conf.RagContextWindow,
+		EnableHeaderInjection:  conf.RagEnableHeaderInjection,
 	}, vectorStore, reranker)
 	if err != nil {
 		return nil, fmt.Errorf("init rag engine failed: %w", err)
@@ -134,6 +140,7 @@ func New() (*App, error) {
 		APIKey:             conf.AIModelConfig.APIKey,
 		MCPBaseURL:         mcpBaseURL,
 		EnableQueryRewrite: conf.RagEnableQueryRewrite,
+		EnableFilterIntent: conf.RagEnableFilterIntent,
 	}, ragEngine)
 
 	// —— 消息队列（RabbitMQ）：发布端作为会话消息 Sink，消费端落库 ——
