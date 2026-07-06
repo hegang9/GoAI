@@ -4,9 +4,7 @@ node_modules/
 vue-frontend/dist/
 docker-compose.yml
 .DS_Store
-<<<<<<< HEAD
 docs/image.png
-=======
 
 # IDE 配置（个人本地配置，勿提交）
 .vscode/
@@ -19,4 +17,3 @@ docs/image.png
 
 # AI 协作临时产物（勿提交）
 .claude/
->>>>>>> 11eaafeabc46a8b7ac97a2a08d79f7730a095e78
