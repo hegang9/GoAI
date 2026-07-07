@@ -1,93 +1,82 @@
 <template>
-  <div class="menu-container">
-    <el-header class="header">
+  <GradientBackground class="menu-root">
+    <el-header class="menu-header">
       <h1>AI应用平台</h1>
       <el-button type="danger" @click="handleLogout">退出登录</el-button>
     </el-header>
-    <el-main class="main">
+    <el-main class="menu-main">
       <div class="menu-grid">
-        <el-card class="menu-item" @click="$router.push('/ai-chat')">
+        <el-card
+          v-for="item in menuItems"
+          :key="item.path"
+          class="menu-item"
+          @click="$router.push(item.path)"
+        >
           <div class="card-content">
-            <el-icon size="48" color="#409eff"><ChatDotRound /></el-icon>
-            <h3>AI聊天</h3>
-            <p>与AI进行智能对话</p>
-          </div>
-        </el-card>
-        <el-card class="menu-item" @click="$router.push('/image-recognition')">
-          <div class="card-content">
-            <el-icon size="48" color="#67c23a"><Camera /></el-icon>
-            <h3>图像识别</h3>
-            <p>上传图片进行AI识别</p>
+            <el-icon size="48" :color="item.color">
+              <component :is="item.icon" />
+            </el-icon>
+            <h3>{{ item.title }}</h3>
+            <p>{{ item.desc }}</p>
           </div>
         </el-card>
       </div>
     </el-main>
-  </div>
+  </GradientBackground>
 </template>
 
 <script>
-import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { ChatDotRound, Camera } from '@element-plus/icons-vue'
+import {useRouter} from "vue-router";
+import {ElMessage, ElMessageBox} from "element-plus";
+import {ChatDotRound, Camera} from "@element-plus/icons-vue";
+import GradientBackground from "../components/GradientBackground.vue";
 
 export default {
-  name: 'MenuView',
-  components: {
-    ChatDotRound,
-    Camera
-  },
+  name: "MenuView",
+  components: {GradientBackground, ChatDotRound, Camera},
   setup() {
-    const router = useRouter()
+    const router = useRouter();
+
+    // 菜单项配置化：新增入口只需在此追加一项，模板通过 v-for 渲染
+    const menuItems = [
+      {
+        path: "/ai-chat",
+        title: "AI聊天",
+        desc: "与AI进行智能对话",
+        icon: "ChatDotRound",
+        color: "#409eff",
+      },
+      {
+        path: "/image-recognition",
+        title: "图像识别",
+        desc: "上传图片进行AI识别",
+        icon: "Camera",
+        color: "#67c23a",
+      },
+    ];
 
     const handleLogout = async () => {
       try {
-        await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
-          confirmButtonText: '确定',
-          cancelButtonText: '取消',
-          type: 'warning'
-        })
-        localStorage.removeItem('token')
-        ElMessage.success('退出登录成功')
-        router.push('/login')
+        await ElMessageBox.confirm("确定要退出登录吗？", "提示", {
+          confirmButtonText: "确定",
+          cancelButtonText: "取消",
+          type: "warning",
+        });
+        localStorage.removeItem("token");
+        ElMessage.success("退出登录成功");
+        router.push("/login");
       } catch {
         // 用户取消操作
       }
-    }
+    };
 
-    return {
-      handleLogout
-    }
-  }
-}
+    return {menuItems, handleLogout};
+  },
+};
 </script>
 
 <style scoped>
-.menu-container {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  position: relative;
-  overflow: hidden;
-}
-
-.menu-container::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="25" cy="25" r="1" fill="rgba(255,255,255,0.05)"/><circle cx="75" cy="75" r="1" fill="rgba(255,255,255,0.05)"/><circle cx="50" cy="10" r="0.5" fill="rgba(255,255,255,0.05)"/><circle cx="90" cy="40" r="0.8" fill="rgba(255,255,255,0.05)"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
-  animation: grainMove 30s linear infinite;
-}
-
-@keyframes grainMove {
-  0% { transform: translate(0, 0); }
-  100% { transform: translate(100px, 100px); }
-}
-
-.header {
+.menu-header {
   background: rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(10px);
   color: white;
@@ -101,36 +90,48 @@ export default {
   z-index: 2;
 }
 
-.header h1 {
+.menu-header h1 {
   margin: 0;
   font-size: 28px;
   font-weight: 600;
-  background: linear-gradient(135deg, #ffffff 0%, rgba(255,255,255,0.8) 100%);
+  background: linear-gradient(
+    135deg,
+    #ffffff 0%,
+    rgba(255, 255, 255, 0.8) 100%
+  );
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-.el-button {
+.menu-header :deep(.el-button) {
   background: rgba(255, 255, 255, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.3);
   color: white;
-  transition: all 0.3s ease;
+  transition: all 0.3s var(--ease-out);
 }
 
-.el-button:hover {
+.menu-header :deep(.el-button:hover) {
   background: rgba(255, 255, 255, 0.3);
   transform: translateY(-2px);
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
 }
 
-.main {
+.menu-main {
   flex: 1;
   display: flex;
   justify-content: center;
   align-items: center;
   position: relative;
   z-index: 1;
+}
+
+.menu-root :deep(.gb-content) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  width: 100%;
+  min-height: 100vh;
 }
 
 .menu-grid {
@@ -140,10 +141,10 @@ export default {
   max-width: 900px;
   width: 100%;
   padding: 40px;
-  animation: gridFadeIn 1s ease-out;
+  animation: menu-fade-in 1s var(--ease-out);
 }
 
-@keyframes gridFadeIn {
+@keyframes menu-fade-in {
   from {
     opacity: 0;
     transform: translateY(50px);
@@ -158,19 +159,23 @@ export default {
   cursor: pointer;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(15px);
-  border-radius: 20px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
   border: 1px solid rgba(255, 255, 255, 0.2);
   transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   position: relative;
   overflow: hidden;
-  animation: cardSlideIn 0.8s ease-out both;
+  animation: menu-card-in 0.8s var(--ease-out) both;
 }
 
-.menu-item:nth-child(1) { animation-delay: 0.1s; }
-.menu-item:nth-child(2) { animation-delay: 0.2s; }
+.menu-item:nth-child(1) {
+  animation-delay: 0.1s;
+}
+.menu-item:nth-child(2) {
+  animation-delay: 0.2s;
+}
 
-@keyframes cardSlideIn {
+@keyframes menu-card-in {
   from {
     opacity: 0;
     transform: translateY(60px) rotateX(10deg);
@@ -182,13 +187,18 @@ export default {
 }
 
 .menu-item::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.4),
+    transparent
+  );
   transition: left 0.6s;
 }
 
@@ -198,7 +208,7 @@ export default {
 
 .menu-item:hover {
   transform: translateY(-15px) scale(1.05);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-lg);
 }
 
 .card-content {
@@ -208,22 +218,22 @@ export default {
   z-index: 1;
 }
 
-.el-icon {
+.card-content :deep(.el-icon) {
   display: block;
   margin: 0 auto 20px;
-  transition: all 0.3s ease;
+  transition: all 0.3s var(--ease-out);
 }
 
-.menu-item:hover .el-icon {
+.menu-item:hover .card-content :deep(.el-icon) {
   transform: scale(1.2) rotate(5deg);
 }
 
 .card-content h3 {
   margin: 0 0 15px 0;
-  color: #2c3e50;
+  color: var(--color-text);
   font-size: 24px;
   font-weight: 600;
-  transition: all 0.3s ease;
+  transition: all 0.3s var(--ease-out);
 }
 
 .menu-item:hover h3 {
@@ -233,10 +243,10 @@ export default {
 
 .card-content p {
   margin: 0;
-  color: #7f8c8d;
+  color: var(--color-text-secondary);
   font-size: 16px;
   line-height: 1.6;
-  transition: all 0.3s ease;
+  transition: all 0.3s var(--ease-out);
 }
 
 .menu-item:hover p {

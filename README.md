@@ -287,6 +287,69 @@ npm run serve
 
 前端开发服务器默认监听 `8080`。`vue-frontend/vue.config.js` 会把 `/api` 代理到后端 `http://localhost:9090`，并重写为 `/api/v1`。
 
+### 前端目录结构
+
+前端按「视图 / 组件 / 组合式逻辑 / 布局 / 共享样式」分层，UI 微调的着力点集中在样式与组件两处，避免改动散落在各视图内部：
+
+```text
+vue-frontend/src/
+├── assets/styles/             # 共享视觉资产
+│   ├── tokens.css             #   设计 token：颜色 / 圆角 / 阴影 / 间距 CSS 变量
+│   ├── gradients.css          #   渐变背景 + 颗粒动画（供 GradientBackground 使用）
+│   └── chat.css               #   会话侧栏 / 消息气泡 / 顶部条 / 输入区共享样式
+├── composables/               # 可复用副作用（按职责拆分，view 只做编排）
+│   ├── useChatSession.js      #   会话加载 / 切换 / 创建 / 同步历史
+│   ├── useChatSend.js         #   消息发送：普通 + 流式 SSE 解析与错误回滚
+│   ├── useRagFiles.js         #   RAG 文档列表与上传
+│   ├── useTTS.js              #   百度 TTS 创建任务 + 轮询播放
+│   └── useAutoScroll.js       #   容器滚动到底部
+├── components/                # 可复用 UI 组件（纯展示 + props/events）
+│   ├── GradientBackground.vue #   统一渐变 + 颗粒背景
+│   ├── auth/AuthCard.vue      #   登录 / 注册共用卡片外壳
+│   └── chat/                  #   聊天相关子组件
+│       ├── SessionSidebar.vue #     会话列表侧栏
+│       ├── ChatTopBar.vue     #     顶部工具条（返回 + 标题 + 工具插槽）
+│       ├── MessageList.vue    #     消息列表容器（含自动滚动）
+│       ├── MessageBubble.vue  #     单条消息气泡（markdown / TTS / 图片）
+│       └── ChatInput.vue      #     文本输入区
+├── layouts/
+│   └── ChatLayout.vue         # 聊天页统一外壳：左侧导航 + 右侧主区
+├── router/                    # 路由表与鉴权守卫
+├── utils/api.js               # axios 实例与统一响应信封展平
+└── views/                     # 页面级组件（仅做编排，不写网络细节）
+    ├── Login.vue / Register.vue
+    ├── Menu.vue               # 菜单卡片（数据驱动）
+    ├── AIChat.vue             # 装配 ChatLayout + 子组件 + composables
+    └── ImageRecognition.vue   # 复用 ChatLayout + MessageList
+```
+
+依赖关系：`views → layouts + components + composables → utils`，`composables` 仅依赖 `utils/api`，`components` 不依赖业务逻辑。共享样式通过 `assets/styles/*` 在 `main.js` 全局引入，并以 CSS 变量（`--gradient-brand` / `--radius-*` / `--shadow-*` 等）暴露给所有组件，调整全局视觉只需改 `tokens.css` 与 `chat.css`。
+
+顶层 `App.vue` 通过 `router-view` 的 `route.fullPath` 为动态页面组件提供 key，配合页面过渡动画强制每次导航挂载目标页面，避免旧页面离场后停留在空节点导致跳转白屏。
+
+### 前端验证
+
+```bash
+cd vue-frontend
+npm run lint
+```
+
+### 前端诊断日志
+
+前端在开发环境会输出带 `[GopherAI-FE]` 前缀的诊断日志，覆盖应用挂载、路由守卫、路由完成、路由错误、Vue 全局错误/警告和顶层页面过渡阶段，用于排查“页面跳转后白屏、刷新后恢复”这类运行时问题。
+
+生产环境默认不输出；如需临时开启，可在浏览器控制台执行：
+
+```js
+localStorage.setItem("gopherai:frontend-debug", "1")
+```
+
+关闭诊断日志：
+
+```js
+localStorage.removeItem("gopherai:frontend-debug")
+```
+
 ## 设计与接口文档
 
 详见 `docs/API.md`。

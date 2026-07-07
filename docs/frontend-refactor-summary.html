@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GopherAI 前端重构总结</title>
+<style>
+  :root {
+    --brand: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --brand-soft: linear-gradient(135deg, rgba(102,126,234,0.08), rgba(118,75,162,0.08));
+    --text: #2c3e50;
+    --text-2: #5a6c7d;
+    --text-3: #8a99a8;
+    --border: #e6ebf2;
+    --surface: #ffffff;
+    --surface-2: #f7f9fc;
+    --code-bg: #1e1e2e;
+    --code-text: #cdd6f4;
+    --green: #67c23a;
+    --red: #f56c6c;
+    --orange: #e6a23c;
+    --radius: 12px;
+    --shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: var(--text);
+    background: var(--surface-2);
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+  .hero {
+    background: var(--brand);
+    color: #fff;
+    padding: 72px 24px 64px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="20" cy="20" r="2" fill="rgba(255,255,255,0.08)"/><circle cx="80" cy="80" r="2" fill="rgba(255,255,255,0.08)"/><circle cx="40" cy="60" r="1" fill="rgba(255,255,255,0.06)"/></svg>');
+    animation: float 24s ease-in-out infinite;
+    opacity: 0.6;
+    pointer-events: none;
+  }
+  @keyframes float { 0%,100%{transform:translateY(0) rotate(0)} 50%{transform:translateY(-16px) rotate(180deg)} }
+  .hero h1 { font-size: 36px; font-weight: 700; position: relative; z-index: 1; }
+  .hero p { margin-top: 14px; opacity: 0.92; font-size: 16px; position: relative; z-index: 1; }
+  .hero .meta { margin-top: 22px; font-size: 13px; opacity: 0.78; position: relative; z-index: 1; }
+  .container { max-width: 1080px; margin: 0 auto; padding: 40px 24px 80px; }
+  section { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 32px; margin-bottom: 24px; }
+  h2 { font-size: 22px; margin-bottom: 18px; display: flex; align-items: center; gap: 10px; }
+  h2 .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--brand); color: #fff; font-size: 14px; font-weight: 600;
+  }
+  h3 { font-size: 17px; margin: 20px 0 12px; color: var(--text); }
+  p { margin-bottom: 12px; color: var(--text-2); }
+  ul, ol { margin: 10px 0 16px 22px; color: var(--text-2); }
+  li { margin-bottom: 6px; }
+  code {
+    font-family: "JetBrains Mono", Consolas, Monaco, monospace;
+    background: var(--surface-2); border: 1px solid var(--border);
+    padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #667eea;
+  }
+  pre {
+    background: var(--code-bg); color: var(--code-text);
+    padding: 18px 20px; border-radius: 10px; overflow-x: auto;
+    font-size: 13px; line-height: 1.6; margin: 12px 0;
+    font-family: "JetBrains Mono", Consolas, Monaco, monospace;
+  }
+  pre code { background: transparent; border: none; color: inherit; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+  th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { background: var(--surface-2); font-weight: 600; color: var(--text); }
+  td { color: var(--text-2); }
+  tr:last-child td { border-bottom: none; }
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; margin-left: 8px;
+  }
+  .badge-bad { background: rgba(245,108,108,0.12); color: var(--red); }
+  .badge-good { background: rgba(103,194,58,0.12); color: var(--green); }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px;
+  }
+  .card h4 { font-size: 14px; margin-bottom: 8px; color: var(--text); }
+  .card ul { margin: 6px 0 0 18px; font-size: 13px; }
+  .file-tree { font-size: 13px; line-height: 1.85; }
+  .file-tree .dir { color: #667eea; font-weight: 600; }
+  .file-tree .file { color: var(--text-2); }
+  .file-tree .desc { color: var(--text-3); }
+  .toc {
+    background: var(--surface); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 24px 32px; margin-bottom: 24px;
+  }
+  .toc h3 { margin-top: 0; }
+  .toc ol { margin: 8px 0 0 22px; }
+  .toc a { color: #667eea; text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .tag {
+    display: inline-block; padding: 1px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 600; margin-right: 6px;
+    border: 1px solid var(--border); color: var(--text-3);
+  }
+  .tag-view { background: rgba(102,126,234,0.1); color: #667eea; border-color: transparent; }
+  .tag-comp { background: rgba(230,162,60,0.1); color: var(--orange); border-color: transparent; }
+  .tag-comp2 { background: rgba(103,194,58,0.1); color: var(--green); border-color: transparent; }
+  .tag-style { background: rgba(245,108,108,0.1); color: var(--red); border-color: transparent; }
+  .tag-layout { background: rgba(144,122,255,0.12); color: #907aff; border-color: transparent; }
+  .arrow { color: var(--text-3); margin: 0 6px; }
+  .note {
+    border-left: 3px solid #667eea;
+    background: var(--brand-soft);
+    padding: 14px 18px; border-radius: 0 8px 8px 0;
+    margin: 14px 0; font-size: 14px;
+  }
+  .note.warn { border-left-color: var(--orange); background: rgba(230,162,60,0.06); }
+  @media (max-width: 768px) {
+    .grid-2 { grid-template-columns: 1fr; }
+    section { padding: 22px; }
+    .hero h1 { font-size: 26px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <h1>GopherAI 前端重构总结</h1>
+  <p>组件关系清晰化 + 视觉小幅刷新 · 功能与接口契约保持不变</p>
+  <div class="meta">2026-07-07 · vue-frontend · Composition API + Composables + Layouts</div>
+</header>
+
+<div class="container">
+
+  <nav class="toc">
+    <h3>目录</h3>
+    <ol>
+      <li><a href="#bg">重构背景与问题诊断</a></li>
+      <li><a href="#goal">重构目标与策略</a></li>
+      <li><a href="#structure">新的目录结构</a></li>
+      <li><a href="#relation">组件关系图</a></li>
+      <li><a href="#files">新增/改动文件清单</a></li>
+      <li><a href="#compare">重构前后对比</a></li>
+      <li><a href="#guide">UI 微调着力点指南</a></li>
+      <li><a href="#visual">视觉刷新要点</a></li>
+      <li><a href="#verify">验证与后续建议</a></li>
+    </ol>
+  </nav>
+
+  <!-- 1 -->
+  <section id="bg">
+    <h2><span class="num">1</span>重构背景与问题诊断</h2>
+    <p>原前端存在三个结构性问题，导致后续 UI 微调成本高、改动容易在多个文件间漂移：</p>
+
+    <h3>1.1 <code>AIChat.vue</code> 是 1100+ 行的巨型组件</h3>
+    <p>单文件混合了 6 类本不相关的职责：</p>
+    <ul>
+      <li>会话管理（加载 / 切换 / 创建 / 同步历史）</li>
+      <li>消息发送（普通 + 流式）</li>
+      <li>SSE 协议解析（fetch + ReadableStream + 行分割 + <code>[DONE]</code> / JSON 分支）</li>
+      <li>百度 TTS 任务创建 + 30 次轮询播放</li>
+      <li>RAG 文档列表拉取 + 文件上传</li>
+      <li>Markdown 渲染、自动滚动、模型 / 流式 / 检索范围切换</li>
+    </ul>
+
+    <h3>1.2 跨页面样式大面积重复 <span class="badge badge-bad">复制粘贴</span></h3>
+    <ul>
+      <li><code>AIChat.vue</code> 与 <code>ImageRecognition.vue</code>：<code>.session-list</code> / <code>.top-bar</code> / <code>.chat-messages</code> / <code>.message</code> / <code>.user-message</code> / <code>.ai-message</code> / <code>.chat-input</code> / <code>@keyframes float</code> / <code>messageSlideIn</code> —— 几乎一字不差</li>
+      <li><code>Login.vue</code> 与 <code>Register.vue</code>：<code>.login-container</code> / <code>.register-container</code>、<code>.login-card</code> / <code>.register-card</code>、<code>@keyframes float/slideIn/glow/fadeIn</code> —— 完全重复</li>
+      <li>4 个页面都用同一段 <code>linear-gradient(135deg, #667eea 0%, #764ba2 100%)</code> + SVG 颗粒背景</li>
+    </ul>
+
+    <h3>1.3 缺少层级 <span class="badge badge-bad">平铺</span></h3>
+    <p>没有 <code>layouts/</code>、没有 <code>composables/</code>、没有 <code>components/</code>，所有视图都是"平铺 + 自包含"。改一个气泡样式要同时改两个文件、改渐变色要改四个文件。</p>
+  </section>
+
+  <!-- 2 -->
+  <section id="goal">
+    <h2><span class="num">2</span>重构目标与策略</h2>
+    <div class="note">
+      <strong>核心原则：</strong>功能、接口契约、路由全部不变；只重构"组件关系"，让 UI 微调的着力点集中、可单点修改。
+    </div>
+    <p>采用三层拆分策略，对应三种不同的"变化频率"：</p>
+    <table>
+      <thead>
+        <tr><th>层级</th><th>职责</th><th>变化频率</th><th>目录</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>视图层</strong></td><td>页面级编排：装配哪些子组件、串起哪些 composable</td><td>低</td><td><code>views/</code></td></tr>
+        <tr><td><strong>组件层</strong></td><td>纯展示 + props/events，UI 微调的最小着力点</td><td>中</td><td><code>components/</code></td></tr>
+        <tr><td><strong>行为层</strong></td><td>可复用副作用逻辑（网络 / SSE / 轮询 / 定时器）</td><td>低</td><td><code>composables/</code></td></tr>
+        <tr><td><strong>布局层</strong></td><td>跨页面共享的骨架</td><td>极低</td><td><code>layouts/</code></td></tr>
+        <tr><td><strong>视觉层</strong></td><td>设计 token + 共享样式</td><td>中</td><td><code>assets/styles/</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 3 -->
+  <section id="structure">
+    <h2><span class="num">3</span>新的目录结构</h2>
+    <pre class="file-tree"><code><span class="dir">vue-frontend/src/</span>
+├── App.vue                          <span class="desc"># 路由出口（简化）</span>
+├── main.js                          <span class="desc"># 入口 + 全局样式引入</span>
+├── <span class="dir">assets/styles/</span>             <span class="desc"># 共享视觉资产</span>
+│   ├── <span class="file">tokens.css</span>             <span class="desc"># 设计 token：颜色 / 圆角 / 阴影 / 间距 CSS 变量</span>
+│   ├── <span class="file">gradients.css</span>          <span class="desc"># 渐变背景 + 颗粒动画</span>
+│   └── <span class="file">chat.css</span>               <span class="desc"># 会话侧栏 / 消息气泡 / 顶部条 / 输入区共享样式</span>
+├── <span class="dir">composables/</span>                <span class="desc"># 可复用副作用（按职责拆分）</span>
+│   ├── <span class="file">useChatSession.js</span>      <span class="desc"># 会话加载 / 切换 / 创建 / 同步历史</span>
+│   ├── <span class="file">useChatSend.js</span>         <span class="desc"># 消息发送：普通 + 流式 SSE 解析与错误回滚</span>
+│   ├── <span class="file">useRagFiles.js</span>         <span class="desc"># RAG 文档列表与上传</span>
+│   ├── <span class="file">useTTS.js</span>              <span class="desc"># 百度 TTS 创建任务 + 轮询播放</span>
+│   └── <span class="file">useAutoScroll.js</span>       <span class="desc"># 容器滚动到底部</span>
+├── <span class="dir">components/</span>                 <span class="desc"># 可复用 UI 组件（纯展示）</span>
+│   ├── <span class="file">GradientBackground.vue</span> <span class="desc"># 统一渐变 + 颗粒背景</span>
+│   ├── <span class="dir">auth/</span>
+│   │   └── <span class="file">AuthCard.vue</span>       <span class="desc"># 登录 / 注册共用卡片外壳</span>
+│   └── <span class="dir">chat/</span>
+│       ├── <span class="file">SessionSidebar.vue</span> <span class="desc"># 会话列表侧栏</span>
+│       ├── <span class="file">ChatTopBar.vue</span>     <span class="desc"># 顶部工具条（返回 + 标题 + 工具插槽）</span>
+│       ├── <span class="file">MessageList.vue</span>    <span class="desc"># 消息列表容器（含自动滚动）</span>
+│       ├── <span class="file">MessageBubble.vue</span>  <span class="desc"># 单条消息气泡（markdown / TTS / 图片）</span>
+│       └── <span class="file">ChatInput.vue</span>      <span class="desc"># 文本输入区</span>
+├── <span class="dir">layouts/</span>
+│   └── <span class="file">ChatLayout.vue</span>         <span class="desc"># 聊天页统一外壳：左侧导航 + 右侧主区</span>
+├── <span class="dir">router/</span>                    <span class="desc"># 路由表与鉴权守卫（不变）</span>
+├── <span class="dir">utils/api.js</span>                <span class="desc"># axios 实例（不变）</span>
+└── <span class="dir">views/</span>                     <span class="desc"># 页面级组件（仅做编排）</span>
+    ├── <span class="file">Login.vue</span> / <span class="file">Register.vue</span>
+    ├── <span class="file">Menu.vue</span>               <span class="desc"># 菜单卡片（数据驱动）</span>
+    ├── <span class="file">AIChat.vue</span>             <span class="desc"># 装配 ChatLayout + 子组件 + composables</span>
+    └── <span class="file">ImageRecognition.vue</span>   <span class="desc"># 复用 ChatLayout + MessageList</span></code></pre>
+  </section>
+
+  <!-- 4 -->
+  <section id="relation">
+    <h2><span class="num">4</span>组件关系图</h2>
+    <pre><code>views (编排层)
+  ├─ AIChat ────┬─ ChatLayout (外壳)
+  │             ├─ SessionSidebar / ChatTopBar / MessageList / ChatInput (子组件)
+  │             └─ useChatSession + useChatSend + useRagFiles + useTTS (composables)
+  │
+  ├─ ImageRecognition ── 复用 ChatLayout + MessageList + MessageBubble
+  ├─ Login / Register ── GradientBackground + AuthCard
+  └─ Menu ── GradientBackground + 数据驱动菜单项
+
+依赖方向（单向，无循环）：
+  views ─→ layouts + components + composables ─→ utils/api
+  components  ←  只接收 props / 抛 events，零业务依赖
+  composables ←  只依赖 utils/api，零视图依赖
+  assets/styles ← 通过 CSS 变量统一调风格</code></pre>
+
+    <div class="note">
+      <strong>关键约束：</strong>组件层不依赖业务逻辑，行为层不依赖视图。这样后续替换 SSE 协议、换 UI 框架、或单独测试某个 composable 都不会扩散到其他层。
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section id="files">
+    <h2><span class="num">5</span>新增 / 改动文件清单</h2>
+
+    <h3>5.1 新增文件（17 个）</h3>
+    <div class="grid-2">
+      <div class="card">
+        <h4><span class="tag tag-style">style</span>assets/styles/tokens.css</h4>
+        <ul>
+          <li>设计 token：颜色 / 圆角 / 阴影 / 间距 / 过渡</li>
+          <li>通过 <code>:root</code> CSS 变量全站复用</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4><span class="tag tag-style">style</span>assets/styles/gradients.css</h4>
+        <ul>
+          <li>渐变背景 + 颗粒动画样式</li>
+          <li>供 <code>GradientBackground</code> 使用</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4><span class="tag tag-style">style</span>assets/styles/chat.css</h4>
+        <ul>
+          <li>会话侧栏 / 消息气泡 / 顶部条 / 输入区</li>
+          <li>AIChat 与 ImageRecognition 共用</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4><span class="tag tag-comp">comp</span>composables/useChatSession.js</h4>
+        <ul>
+          <li>会话加载 / 切换 / 创建 / 同步</li>
+          <li>临时会话升级为正式会话</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4><span class="tag tag-comp">comp</span>composables/useChatSend.js</h4>
+        <ul>
+          <li>普通 + 流式 SSE 解析</li>
+          <li>错误回滚、sessionId 首帧处理</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4><span class="tag tag-comp">comp</span>composables/useRagFiles.js</h4>
+        <ul>
+          <li>RAG 文档列表拉取</li>
+          <li>文件上传（md/txt 校验）</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4><span class="tag tag-comp">comp</span>composables/useTTS.js</h4>
+        <ul>
+          <li>百度 TTS 任务创建 + 轮询</li>
+          <li>5s 等待 → 30 次 × 2s 轮询</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4><span class="tag tag-comp">comp</span>composables/useAutoScroll.js</h4>
+        <ul>
+          <li>容器自动滚动到底部</li>
+          <li>nextTick 包装</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4><span class="tag tag-comp2">comp</span>components/GradientBackground.vue</h4>
+        <ul>
+          <li>统一渐变 + 颗粒背景容器</li>
+          <li><code>fill</code> prop 控制是否撑满父容器</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4><span class="tag tag-comp2">comp</span>components/auth/AuthCard.vue</h4>
+        <ul>
+          <li>登录/注册共用卡片外壳</li>
+          <li>含动画 + <code>:deep</code> 表单样式</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4><span class="tag tag-comp2">comp</span>components/chat/SessionSidebar.vue</h4>
+        <ul>
+          <li>会话列表侧栏</li>
+          <li>支持 <code>#list</code> slot 覆盖默认渲染</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4><span class="tag tag-comp2">comp</span>components/chat/ChatTopBar.vue</h4>
+        <ul>
+          <li>顶部工具条</li>
+          <li>返回按钮 + 标题 + 默认 slot</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4><span class="tag tag-comp2">comp</span>components/chat/MessageList.vue</h4>
+        <ul>
+          <li>消息列表容器</li>
+          <li>watch 自动滚动 + 暴露 scrollToBottom</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4><span class="tag tag-comp2">comp</span>components/chat/MessageBubble.vue</h4>
+        <ul>
+          <li>单条消息气泡</li>
+          <li>markdown / TTS / 图片支持</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4><span class="tag tag-comp2">comp</span>components/chat/ChatInput.vue</h4>
+        <ul>
+          <li>文本输入区</li>
+          <li>Enter 发送，暴露 focus</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4><span class="tag tag-layout">layout</span>layouts/ChatLayout.vue</h4>
+        <ul>
+          <li>聊天页统一外壳</li>
+          <li>左侧导航 + 右侧主区双 slot</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>5.2 改动文件（7 个）</h3>
+    <table>
+      <thead><tr><th>文件</th><th>改动内容</th></tr></thead>
+      <tbody>
+        <tr><td><code>main.js</code></td><td>新增 3 个全局样式 import（tokens / gradients / chat）</td></tr>
+        <tr><td><code>App.vue</code></td><td>简化全局样式，圆角引用 token 变量</td></tr>
+        <tr><td><code>views/Login.vue</code></td><td>改用 <code>GradientBackground</code> + <code>AuthCard</code>，删除 200+ 行重复样式</td></tr>
+        <tr><td><code>views/Register.vue</code></td><td>同上</td></tr>
+        <tr><td><code>views/Menu.vue</code></td><td>改用 <code>GradientBackground</code>，菜单项数据驱动，删除重复样式</td></tr>
+        <tr><td><code>views/AIChat.vue</code></td><td>从 1100+ 行 → ~165 行，仅做编排</td></tr>
+        <tr><td><code>views/ImageRecognition.vue</code></td><td>复用 <code>ChatLayout</code> + <code>MessageList</code>，删除重复样式</td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.3 未改动文件</h3>
+    <ul>
+      <li><code>router/index.js</code>、<code>utils/api.js</code>、<code>vue.config.js</code>、<code>public/index.html</code> —— 路由、API 契约、代理配置、HTML 模板均保持原样</li>
+    </ul>
+  </section>
+
+  <!-- 6 -->
+  <section id="compare">
+    <h2><span class="num">6</span>重构前后对比</h2>
+    <table>
+      <thead><tr><th>维度</th><th>重构前</th><th>重构后</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>AIChat.vue</code> 行数</td>
+          <td>1100+ 行（模板 + 逻辑 + 样式全堆）</td>
+          <td>~165 行（仅做编排）<span class="badge badge-good">-85%</span></td>
+        </tr>
+        <tr>
+          <td>跨页面重复样式</td>
+          <td>4 个页面各写一份渐变 / 气泡 / 卡片</td>
+          <td>收口到 <code>assets/styles/</code> 3 个文件</td>
+        </tr>
+        <tr>
+          <td>AIChat 与 ImageRecognition 共享布局</td>
+          <td>复制粘贴 200 行</td>
+          <td>共用 <code>ChatLayout</code> + <code>MessageList</code> + <code>MessageBubble</code></td>
+        </tr>
+        <tr>
+          <td>Login 与 Register 共享卡片</td>
+          <td>复制粘贴 100 行</td>
+          <td>共用 <code>AuthCard</code></td>
+        </tr>
+        <tr>
+          <td>网络 / SSE / TTS 逻辑位置</td>
+          <td>内联在 <code>AIChat</code> setup()</td>
+          <td>拆到 5 个 composable，可独立测试与复用</td>
+        </tr>
+        <tr>
+          <td>改一个气泡样式要动几个文件</td>
+          <td>2 个（AIChat + ImageRecognition）</td>
+          <td>1 个（<code>chat.css</code> 或 <code>MessageBubble.vue</code>）</td>
+        </tr>
+        <tr>
+          <td>改渐变主题要动几个文件</td>
+          <td>4 个</td>
+          <td>1 个（<code>tokens.css</code>）</td>
+        </tr>
+        <tr>
+          <td>换 SSE 解析要动几个文件</td>
+          <td>1 个（但混在 1100 行里）</td>
+          <td>1 个（<code>useChatSend.js</code>，独立 ~200 行）</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 7 -->
+  <section id="guide">
+    <h2><span class="num">7</span>UI 微调着力点指南</h2>
+    <p>重构后，日常 UI 微调基本都能落到单点。常见诉求与对应文件：</p>
+    <table>
+      <thead><tr><th>想改什么</th><th>改哪里</th><th>影响范围</th></tr></thead>
+      <tbody>
+        <tr><td>配色 / 圆角 / 阴影 / 间距</td><td><code>assets/styles/tokens.css</code></td><td>全站</td></tr>
+        <tr><td>渐变背景 / 颗粒动画</td><td><code>assets/styles/gradients.css</code> 或 <code>GradientBackground.vue</code></td><td>所有页面背景</td></tr>
+        <tr><td>消息气泡 / 会话列表 / 顶部条样式</td><td><code>assets/styles/chat.css</code></td><td>AIChat + ImageRecognition</td></tr>
+        <tr><td>单条消息渲染方式（markdown / 图片 / TTS）</td><td><code>components/chat/MessageBubble.vue</code></td><td>所有消息气泡</td></tr>
+        <tr><td>输入区外观 / 发送按钮</td><td><code>components/chat/ChatInput.vue</code></td><td>AIChat 输入区</td></tr>
+        <tr><td>顶部工具条布局</td><td><code>components/chat/ChatTopBar.vue</code></td><td>AIChat + ImageRecognition</td></tr>
+        <tr><td>会话侧栏样式</td><td><code>components/chat/SessionSidebar.vue</code></td><td>AIChat + ImageRecognition</td></tr>
+        <tr><td>SSE 解析或换协议</td><td><code>composables/useChatSend.js</code></td><td>消息发送</td></tr>
+        <tr><td>TTS 轮询策略</td><td><code>composables/useTTS.js</code></td><td>语音播放</td></tr>
+        <tr><td>菜单新增入口</td><td><code>views/Menu.vue</code> 的 <code>menuItems</code> 数组</td><td>菜单页</td></tr>
+        <tr><td>登录 / 注册卡片样式</td><td><code>components/auth/AuthCard.vue</code></td><td>登录 + 注册</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 8 -->
+  <section id="visual">
+    <h2><span class="num">8</span>视觉刷新要点</h2>
+    <p>本次重构顺便做了一轮克制的视觉刷新，<strong>保留品牌主色 <code>#667eea → #764ba2</code></strong>，调整方向是"更通透、更柔和、更一致"：</p>
+    <ul>
+      <li><strong>颗粒动画降噪：</strong>透明度从 1.0 降到 0.6 / 0.25，运动幅度从 20px 减到 16px，背景不再抢内容焦点</li>
+      <li><strong>圆角统一：</strong>引入 <code>--radius-sm/md/lg/xl/pill</code> 五档 token，全站圆角不再各自为政</li>
+      <li><strong>多层柔和阴影：</strong><code>--shadow-sm/md/lg/brand</code> 替换原来散落的硬阴影，深度感更细腻</li>
+      <li><strong>过渡曲线统一：</strong>所有动效收敛到 <code>--ease-out: cubic-bezier(0.16, 1, 0.3, 1)</code>，手感一致</li>
+      <li><strong>玻璃感保留：</strong><code>backdrop-filter: blur</code> 维持，但表面色值统一引用 token</li>
+    </ul>
+    <div class="note">
+      修改全局视觉的入口只有两个文件：<code>tokens.css</code>（数值）与 <code>chat.css</code> / <code>gradients.css</code>（具体类名）。
+    </div>
+  </section>
+
+  <!-- 9 -->
+  <section id="verify">
+    <h2><span class="num">9</span>验证与后续建议</h2>
+
+    <h3>9.1 验证</h3>
+    <ul>
+      <li><code>npm run lint</code> ✅ 无错误</li>
+      <li><code>npm run serve</code> ✅ 编译成功</li>
+      <li>本地探针（puppeteer-core + Edge）实测 5 个路由全部正常渲染：
+        <code>/login</code>、<code>/register</code>、<code>/menu</code>、<code>/ai-chat</code>、<code>/image-recognition</code></li>
+      <li>功能、路由、接口契约、SSE 流式、TTS、RAG 上传 / 检索范围全部保持原行为不变</li>
+    </ul>
+
+    <h3>9.2 后续建议（更长远方向，本次未做）</h3>
+    <div class="note warn">
+      <strong>下一步可考虑：</strong>把会话消息状态收敛到一个 composable（例如 <code>useChatStore</code>，不必引入 Pinia），让 <code>useChatSend</code> 只关心协议、不关心状态同步。当前 <code>useChatSend</code> 仍耦合了三处状态（<code>currentMessages</code> / <code>sessions[id].messages</code> / <code>tempSession</code>），行为正确但还能更瘦。这属于行为层的二次重构，会改变响应式数据结构，超出本次"组件关系清晰"的目标范围，故未在本次执行。
+    </div>
+
+    <h3>9.3 若遇白屏排查路径</h3>
+    <ol>
+      <li>先硬刷新（Ctrl + Shift + R）—— HMR 偶尔不能正确热替换大改动</li>
+      <li>若仍白屏，按 F12 打开控制台查看 <code>Console</code> 红色错误与 <code>Network</code> 失败请求</li>
+      <li>确认后端是否启动（<code>/ai/chat/sessions</code> 等接口 500 / 401 不会导致白屏，前端有 try/catch 兜底）</li>
+      <li>提供控制台错误信息以便定位</li>
+    </ol>
+  </section>
+
+</div>
+
+</body>
+</html>
