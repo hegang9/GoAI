@@ -21,11 +21,13 @@ import (
 //
 // 参数说明：
 //   - accountNo：当前登录用户的内部账号编号，用于归属校验；
-//   - sessionID：目标会话 ID；
-//   - modelType：回放时创建 Conversation 使用的模型类型（发消息场景与请求一致，查历史场景用 defaultModelType）。
+//   - sessionID：目标会话 ID。
+//
+// 回放使用 s.defaultModelType 创建会话模型；Phase 2 引入统一 auto 模型后，
+// 该默认类型将切换为 "auto"，Phase 4 退役 defaultModelType 配置时再简化。
 //
 // 调用方：ChatSend、StreamToSession、GetChatHistory。
-func (s *Service) ensureSessionLoaded(ctx context.Context, accountNo, sessionID, modelType string) error {
+func (s *Service) ensureSessionLoaded(ctx context.Context, accountNo, sessionID string) error {
 	// 内存命中则无需访问数据库。
 	if _, ok := s.manager.Get(accountNo, sessionID); ok {
 		return nil
@@ -43,7 +45,7 @@ func (s *Service) ensureSessionLoaded(ctx context.Context, accountNo, sessionID,
 		return nil
 	}
 
-	if err := s.manager.ReplayMessages(ctx, accountNo, sessionID, modelType, modelParams(accountNo), msgs); err != nil {
+	if err := s.manager.ReplayMessages(ctx, accountNo, sessionID, s.defaultModelType, modelParams(accountNo), msgs); err != nil {
 		logger.Error("ensureSessionLoaded ReplayMessages failed",
 			"accountNo", accountNo, "sessionID", sessionID, "err", err)
 		return err

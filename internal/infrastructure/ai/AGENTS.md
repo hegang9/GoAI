@@ -2,16 +2,18 @@
 
 ## 模块职责
 
-- 本目录实现各类对话模型适配器与模型工厂，统一承接 OpenAI、RAG、MCP、Ollama 等模型类型。
+- 本目录实现各类对话模型适配器与模型工厂，统一承接 OpenAI、auto、Ollama 等模型类型。
+- `auto` 是统一自动编排模型：planner 检索决策 + RetrievalModifier 一次性检索增强 + ReAct Agent（默认 MCP 工具集，模型自主 native function calling）。
 
 ## 变更约束
 
-- 继续维护模型类型约定：`1=OpenAI`、`2=RAG`、`3=MCP`、`4=Ollama`；任何变动都要同步审视历史会话与上层路由。
+- 模型类型约定（Phase 3 后）：`auto` 自动编排、`1` OpenAI、`4` Ollama；旧 `2` RAG / `3` MCP 已退役，由 `auto` 统一承载。任何类型变动都要同步审视历史会话与上层路由。
 - `Factory` 只负责按类型创建模型，不要把会话编排、HTTP DTO 或控制器逻辑拉进来。
-- RAG 与 MCP 适配器都依赖 `account_no`；新增模型若也需要上下文参数，应沿用显式 `params` 传递，而不是读全局状态。
-- MCP 保持懒连接与工具发现机制，RAG 保持检索增强与 query rewrite 的边界清晰，不要把两条链路混成一套临时逻辑。
-- `MCPModel` 必须继续懒连接；`NewMCPModel()` 不应在构造阶段要求 MCP 服务可达，否则会破坏启动与回放链路。
-- `RAGModel` 在无文档或无相关上下文时必须保留原始消息，不要无条件改写最后一条用户消息。
+- `auto` 依赖 `account_no`（检索与工具集都按账号隔离）；新增模型若也需要上下文参数，应沿用显式 `params` 传递，而不是读全局状态。
+- 检索是 pre-generation 上下文准备，必须在进入 ReAct 前由 `RetrievalModifier` 一次性完成；不要把检索塞进 ReAct 的 `MessageModifier`——后者每轮模型调用前都会触发，且循环中途最后一条是工具结果，重复检索既昂贵又会改错位置。`MessageModifier` 只承载幂等的系统提示注入。
+- 职责去重：`Planner` 已产出 `RetrievalQuery` 与 `DocFilter`，`RetrievalModifier` 不再重复 query 改写与 filter 解析，直接用 planner 输出检索。
+- `AutoRouterModel` 的 MCP 客户端必须懒连接：构造阶段不连 MCP Server，首次 `Generate`/`Stream` 才建连、拉工具、构建 Agent；MCP 临时不可用时降级为纯生成，且不缓存无工具 Agent，下次调用重试以自动恢复工具能力。
+- `RetrievalModifier` 在无文档、无相关上下文或检索失败时必须透传原始消息，不要无条件改写最后一条用户消息。
 - 会话缓存键当前是 `accountNo + sessionID` 而不是 `modelType`；改模型编号或默认模型类型时，要同步评估缓存命中和回放语义。
 
 ## 验证

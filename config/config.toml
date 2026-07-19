@@ -12,6 +12,8 @@ host = "192.168.71.109"
 port = 6379
 password = "hg200512hg"
 db = 0
+# 启动阶段 Redis Ping 超时毫秒数（<=0 默认 3000），避免依赖异常时启动长时间阻塞
+pingTimeoutMs = 3000
 
 [mysqlConfig]
 host = "192.168.71.109"
@@ -33,6 +35,8 @@ port = 5672
 username = "lab"
 password = "hg200512hg"
 vhost = "/"
+# 会话消息持久化使用的队列名（为空时默认 "Message"）
+queue = "Message"
 
 [ragModelConfig]
 embeddingModel = "text-embedding-v4"
@@ -87,5 +91,30 @@ apiKey = "your-api-key"
 [chatReplayConfig]
 # 启动时预加载的最近活跃session数量上限
 sessionLimit = 10
-# 启动回放使用的默认模型类型（"1" OpenAI 兼容）；运行时懒加载使用请求中的 modelType
-defaultModelType = "1"
+# 启动回放使用的默认模型类型；统一为 "auto"（planner 驱动的自动能力编排）
+defaultModelType = "auto"
+
+[plannerConfig]
+# 是否启用 planner 检索决策；关闭时 auto 模型退化为纯生成
+enabled = true
+# planner 使用的轻量模型名称（可与最终回答模型不同，建议用便宜快速的模型）
+modelName = "qwen-turbo"
+# planner 模型 API 基础地址
+baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+# planner 模型 API Key（独立于 [aiModelConfig].apiKey，支持 planner 使用不同 provider）
+plannerApiKey = "your-api-key"
+# planner 决策时回溯的最近消息条数上限（<=0 默认 8）
+historyWindow = 8
+# planner 调用超时毫秒数，超时降级为不检索（<=0 默认 1200）
+timeoutMs = 1200
+
+[mcpConfig]
+# MCP Server 的 Streamable HTTP 端点；auto 模型懒连接此地址拉取工具集注入 ReAct Agent
+# 为空时退化为无工具纯生成；Server 临时不可用时本次降级，下次调用自动重试
+baseUrl = "http://localhost:8081/mcp"
+
+[imageServiceConfig]
+# ONNX 图像识别模型文件路径（随部署环境变化）
+modelPath = "/root/models/mobilenetv2/mobilenetv2-7.onnx"
+# 类别标签文件路径
+labelPath = "/root/imagenet_classes.txt"

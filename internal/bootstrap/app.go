@@ -38,14 +38,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// 消息队列名与图像识别模型资源路径。集中在组合根声明，便于后续收敛到配置。
-const (
-	messageQueueName = "Message"
-	mcpBaseURL       = "http://localhost:8081/mcp"
-	imageModelPath   = "/root/models/mobilenetv2/mobilenetv2-7.onnx"
-	imageLabelPath   = "/root/imagenet_classes.txt"
-	redisPingTimeout = 3 * time.Second
-)
+// redisPingTimeoutDefault 是 [redisConfig].pingTimeoutMs 缺省/非法时的兜底值。
+const redisPingTimeoutDefault = 3 * time.Second
 
 // App 持有运行期组件与可释放资源句柄，支撑启动与优雅关闭。
 type App struct {
@@ -84,7 +78,12 @@ func New() (*App, error) {
 
 	// —— 缓存（Redis）：验证码存储 + 向量索引存储 ——
 	// redisCtx 用于限制启动阶段 Redis Ping 的最长等待时间，避免依赖异常时启动过程长时间阻塞。
-	redisCtx, redisCancel := context.WithTimeout(context.Background(), redisPingTimeout)
+	// pingTimeoutMs<=0 时回退默认 3s，保持原硬编码行为。
+	pingTimeout := time.Duration(conf.RedisPingTimeoutMs) * time.Millisecond
+	if pingTimeout <= 0 {
+		pingTimeout = redisPingTimeoutDefault
+	}
+	redisCtx, redisCancel := context.WithTimeout(context.Background(), pingTimeout)
 	defer redisCancel()
 	rdb, err := redisstore.Connect(redisCtx, redisstore.Config{
 		Host:     conf.RedisHost,
@@ -132,25 +131,46 @@ func New() (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init rag engine failed: %w", err)
 	}
+	// —— Planner（检索决策器）——
+	// 仅在 plannerConfig.enabled 时构造；关闭时传 nil，auto 模型退化为纯生成。
+	var planner *ai.Planner
+	if conf.PlannerConfig.Enabled {
+		planner, err = ai.NewPlanner(context.Background(),
+			conf.PlannerConfig.ModelName,
+			conf.PlannerConfig.BaseURL,
+			conf.PlannerConfig.PlannerAPIKey,
+			conf.PlannerConfig.HistoryWindow,
+			conf.PlannerConfig.TimeoutMs)
+		if err != nil {
+			return nil, fmt.Errorf("init planner failed: %w", err)
+		}
+		logger.Info("planner init success", "model", conf.PlannerConfig.ModelName)
+	}
+
+	// Phase 3 后工厂只创建 auto / 1 / 4；RAG 的 query 改写与 filter 意图已由 planner 接管，
+	// 旧 EnableQueryRewrite / EnableFilterIntent 不再装配（对应配置项待与 rag.go/mcp.go 一并清理）。
 	modelFactory := ai.NewFactory(ai.FactoryConfig{
-		OpenAIModelName:    conf.AIModelName,
-		OpenAIBaseURL:      conf.AIBaseURL,
-		ChatModelName:      conf.RagChatModelName,
-		BaseURL:            conf.RagBaseUrl,
-		APIKey:             conf.AIModelConfig.APIKey,
-		MCPBaseURL:         mcpBaseURL,
-		EnableQueryRewrite: conf.RagEnableQueryRewrite,
-		EnableFilterIntent: conf.RagEnableFilterIntent,
+		OpenAIModelName: conf.AIModelName,
+		OpenAIBaseURL:   conf.AIBaseURL,
+		ChatModelName:   conf.RagChatModelName,
+		BaseURL:         conf.RagBaseUrl,
+		APIKey:          conf.AIModelConfig.APIKey,
+		MCPBaseURL:      conf.McpConfig.BaseURL,
+		Planner:         planner,
 	}, ragEngine)
 
 	// —— 消息队列（RabbitMQ）：发布端作为会话消息 Sink，消费端落库 ——
+	queueName := conf.RabbitmqQueue
+	if queueName == "" {
+		queueName = "Message"
+	}
 	rabbit, err := rabbitmq.Connect(rabbitmq.Config{
 		Host:     conf.RabbitmqHost,
 		Port:     conf.RabbitmqPort,
 		Username: conf.RabbitmqUsername,
 		Password: conf.RabbitmqPassword,
 		Vhost:    conf.RabbitmqVhost,
-		Queue:    messageQueueName,
+		Queue:    queueName,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("init rabbitmq failed: %w", err)
@@ -184,7 +204,7 @@ func New() (*App, error) {
 	})
 	mailer := email.NewMailer(conf.EmailConfig.Email, conf.EmailConfig.Authcode)
 	docStorage := storage.NewLocalDocStorage()
-	recognizer := imageinfra.NewONNXRecognizer(imageModelPath, imageLabelPath, 224, 224)
+	recognizer := imageinfra.NewONNXRecognizer(conf.ImageModelPath, conf.ImageLabelPath, 224, 224)
 	synthesizer := ttsinfra.NewBaiduSynthesizer(conf.VoiceServiceApiKey, conf.VoiceServiceSecretKey)
 
 	// —— 应用服务 ——
@@ -255,7 +275,7 @@ type chatReplayRuntimeConfig struct {
 
 // normalizeChatReplayConfig 读取 TOML 配置并填充回放策略的默认值。
 //
-// 默认值：sessionLimit=50，defaultModelType="1"。
+// 默认值：sessionLimit=50，defaultModelType="auto"。
 func normalizeChatReplayConfig(cfg config.ChatReplayConfig) chatReplayRuntimeConfig {
 	out := chatReplayRuntimeConfig{
 		SessionLimit:     cfg.SessionLimit,
@@ -265,7 +285,7 @@ func normalizeChatReplayConfig(cfg config.ChatReplayConfig) chatReplayRuntimeCon
 		out.SessionLimit = 50
 	}
 	if out.DefaultModelType == "" {
-		out.DefaultModelType = "1"
+		out.DefaultModelType = "auto"
 	}
 	return out
 }

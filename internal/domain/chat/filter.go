@@ -4,8 +4,8 @@ import "context"
 
 // RAGFilter 描述 RAG 检索期的元数据过滤范围，用于把检索限定在特定文档或章节内。
 //
-// 它定义在领域层，不依赖 infrastructure/rag 的具体类型；RAG 适配器
-// （infrastructure/ai/rag.go）负责把它转换为 engine 实际使用的 RetrieveFilter。
+// 它定义在领域层，不依赖 infrastructure/rag 的具体类型；检索增强路径
+// （infrastructure/ai 的 RetrievalModifier）负责把它转换为 engine 实际使用的 RetrieveFilter。
 // 两个字段可同时设置（AND 关系），也可都为空（不过滤，行为与无过滤时一致）。
 type RAGFilter struct {
 	// StoredName 限定只检索某个来源文档；为空时不限来源。
@@ -24,7 +24,7 @@ type filterCtxKey struct{}
 
 // WithRetrieveFilter 把 RAGFilter 携带进 ctx，返回派生的新 context。
 // 供 Conversation.Generate/Stream 在调用 model 前，把过滤意图塞进 ctx，
-// 由 RAGModel 从 ctx 取出，避免修改通用 Model 端口签名。
+// 由检索增强路径从 ctx 取出，避免修改通用 Model 端口签名。
 func WithRetrieveFilter(ctx context.Context, f RAGFilter) context.Context {
 	return context.WithValue(ctx, filterCtxKey{}, f)
 }

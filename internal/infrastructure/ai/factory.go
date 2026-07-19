@@ -15,18 +15,16 @@ type FactoryConfig struct {
 	OpenAIModelName string
 	// OpenAIBaseURL 普通 OpenAI 兼容模型 API 基础地址。
 	OpenAIBaseURL string
-	// ChatModelName RAG / MCP 模型使用的对话模型名称。
+	// ChatModelName auto 模型使用的对话模型名称。
 	ChatModelName string
-	// BaseURL RAG / MCP 模型对话 API 基础地址。
+	// BaseURL auto 模型对话 API 基础地址。
 	BaseURL string
 	// APIKey 模型 API Key，来自统一配置。
 	APIKey string
-	// MCPBaseURL MCP 服务地址。
+	// MCPBaseURL MCP 服务地址；auto 模型默认注入该地址的工具集，为空时退化为纯生成。
 	MCPBaseURL string
-	// EnableQueryRewrite RAG 模型是否启用多轮 query 改写。
-	EnableQueryRewrite bool
-	// EnableFilterIntent RAG 模型无显式过滤参数时是否用 LLM 解析过滤意图。
-	EnableFilterIntent bool
+	// Planner 检索决策器，供 auto 模型使用；为 nil 时 auto 模型退化为纯生成。
+	Planner *Planner
 }
 
 // Factory 实现 domain/chat.ModelFactory 端口：按模型类型创建具体模型实现。
@@ -45,24 +43,19 @@ var _ chat.ModelFactory = (*Factory)(nil)
 
 // Create 根据模型类型与参数创建模型实例。
 //
-// 类型约定："1" OpenAI、"2" RAG、"3" MCP、"4" Ollama；
-// "2"/"3" 需要 params["account_no"]，"4" 需要 params["modelName"]/"baseURL"。
+// Phase 3 后类型约定："auto" 自动编排、"1" OpenAI、"4" Ollama；
+// "auto" 需要 params["account_no"]，"4" 需要 params["modelName"]/"baseURL"。
+// 旧 "2" RAG / "3" MCP 已退役，其能力由 "auto"（planner 检索 + ReAct 工具）统一承载。
 func (f *Factory) Create(ctx context.Context, modelType string, params map[string]any) (chat.Model, error) {
 	switch modelType {
+	case "auto":
+		accountNo, ok := params["account_no"].(string)
+		if !ok {
+			return nil, fmt.Errorf("auto model requires account_no")
+		}
+		return NewAutoRouterModel(ctx, accountNo, f.cfg.ChatModelName, f.cfg.BaseURL, f.cfg.APIKey, f.cfg.MCPBaseURL, f.cfg.Planner, f.engine)
 	case "1":
 		return NewOpenAIModel(ctx, f.cfg.OpenAIModelName, f.cfg.OpenAIBaseURL, f.cfg.APIKey)
-	case "2":
-		accountNo, ok := params["account_no"].(string)
-		if !ok {
-			return nil, fmt.Errorf("RAG model requires account_no")
-		}
-		return NewRAGModel(ctx, accountNo, f.cfg.ChatModelName, f.cfg.BaseURL, f.cfg.APIKey, f.cfg.EnableQueryRewrite, f.cfg.EnableFilterIntent, f.engine)
-	case "3":
-		accountNo, ok := params["account_no"].(string)
-		if !ok {
-			return nil, fmt.Errorf("MCP model requires account_no")
-		}
-		return NewMCPModel(ctx, accountNo, f.cfg.ChatModelName, f.cfg.BaseURL, f.cfg.APIKey, f.cfg.MCPBaseURL)
 	case "4":
 		baseURL, _ := params["baseURL"].(string)
 		modelName, ok := params["modelName"].(string)

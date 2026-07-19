@@ -22,7 +22,7 @@ GopherAI 是一个 Go + Vue 的 AI 应用示例，后端基于 Gin，前端基�
 │   │   ├── persistence/    #   MySQL + GORM（PO 与仓储实现）
 │   │   ├── cache/redis/    #   Redis 验证码存储与向量索引
 │   │   ├── mq/rabbitmq/    #   消息发布（MessageSink）与消费落库
-│   │   ├── ai/             #   OpenAI/Ollama/RAG/MCP 模型与工厂
+│   │   ├── ai/             #   OpenAI/Ollama/auto 模型与工厂（auto=planner检索+ReAct工具）
 │   │   ├── rag/ storage/ security/ email/ image/ tts/  # 其余适配器
 │   └── interfaces/http/    # 接口层：router/controller/dto/middleware/sse/httpx
 │   └── bootstrap/          # 组合根：自上而下依赖装配与启停
@@ -95,14 +95,17 @@ go test ./test/... -v
 | --- | --- |
 | `[mainConfig]` | 后端监听地址与端口，默认 `0.0.0.0:9090` |
 | `[mysqlConfig]` | MySQL 地址、账号、密码、数据库名和字符集 |
-| `[redisConfig]` | Redis 地址、密码和 DB |
-| `[rabbitmqConfig]` | RabbitMQ 地址、账号、密码和 vhost |
+| `[redisConfig]` | Redis 地址、密码、DB，以及启动阶段 Ping 超时（`pingTimeoutMs`，<=0 默认 3000） |
+| `[rabbitmqConfig]` | RabbitMQ 地址、账号、密码、vhost，以及会话消息持久化队列名（`queue`，为空默认 `"Message"`） |
 | `[emailConfig]` | 注册验证码邮件配置 |
 | `[jwtConfig]` | JWT 过期时间、签发信息和密钥 |
 | `[ragModelConfig]` | RAG 使用的模型名、文档目录、OpenAI 兼容 Base URL、向量维度，以及检索增强参数（分块大小/重叠、TopK、距离阈值、是否启用多轮 query 改写、是否启用精排 reranker 及其召回放大/截断/最低分阈值、语义切分/上下文增强/块头标签三项分块索引升级开关） |
 | `[voiceServiceConfig]` | 百度 TTS API Key 和 Secret Key |
 | `[aiModelConfig]` | 普通 OpenAI 兼容模型名、Base URL 与通用 AI API Key 配置 |
 | `[chatReplayConfig]` | 会话历史回放：启动预热最近 N 个活跃会话、默认模型类型 |
+| `[plannerConfig]` | planner 检索决策器：是否启用、轻量模型名/BaseURL/APIKey、回溯窗口与超时 |
+| `[mcpConfig]` | MCP 工具服务 Streamable HTTP 端点（`baseUrl`）；auto 模型懒连接拉取工具集，为空时退化为无工具纯生成 |
+| `[imageServiceConfig]` | ONNX 图像识别模型与标签文件路径（`modelPath` / `labelPath`），随部署环境变化 |
 
 `[chatReplayConfig]` 示例：
 
@@ -255,9 +258,10 @@ go run ./cmd/server
   - `persistence`：GORM 持久化对象（PO，仅 `gorm` 标签映射表结构）与用户/会话/消息仓储实现；对外 JSON 由 `interfaces/http/dto` 定义。
   - `cache/redis`：验证码存储与 RAG 向量索引存储。
   - `mq/rabbitmq`：消息发布器（实现 `MessageSink`）与消费落库。
-  - `ai`：OpenAI / Ollama / RAG / MCP 模型实现与模型工厂，`schema.go` 负责领域消息与模型消息互转。
-    - MCP 模型（`mcp.go` + `tools.go`）基于 Eino 原生工具调用：用 `flow/agent/react` 的 ReAct Agent 驱动「模型→（产出 `schema.ToolCalls` 则执行工具→结果回灌）→模型」的多轮自动循环，替代旧的「提示词逼模型吐 JSON + 手工解析」做法；工具由 `eino-ext/components/tool/mcp` 适配器从 MCP Server 批量自动转换（`mcp.GetTools`），新增工具时本层零改动。
-    - MCP 客户端采用**懒连接**：构造模型（`NewMCPModel`）时不连接 MCP Server，首次 `Generate`/`Stream` 调用才建立连接、拉取工具并构建 Agent；连接失败不缓存错误状态，下次调用会重试，避免 Server 暂不可用导致模型创建失败。
+  - `ai`：OpenAI / Ollama / auto 模型实现与模型工厂，`schema.go` 负责领域消息与模型消息互转。
+    - auto 模型（`auto_router.go` + `planner.go` + `retrieval_modifier.go` + `tools.go`）是统一自动编排模型：每轮先由 `Planner` 决策「是否检索」并产出 `TurnPlan`（含 query 改写与 doc_filter，取代旧 RAG 的 query rewrite / filter intent 两步），再由 `RetrievalModifier` 在进入 Agent 前做一次性检索增强（替换最后一条用户消息），最后交给 Eino `flow/agent/react` 的 ReAct Agent 生成。工具默认注入该账号可用的 MCP 工具集，由模型在生成中按需 native function calling 自主调用；检索是 pre-generation 上下文准备，不进 ReAct 的 `MessageModifier`（后者每轮触发、且循环中途最后一条是工具结果，重复检索会改错位置）。
+    - MCP 工具由 `eino-ext/components/tool/mcp` 适配器从 MCP Server 批量自动转换（`mcp.GetTools`），新增工具时本层零改动；MCP 客户端采用**懒连接**，首次 `Generate`/`Stream` 才建立连接、拉取工具并构建 Agent，MCP 临时不可用时降级为纯生成（不缓存无工具 Agent，下次重试以自动恢复工具能力）。
+    - Phase 3 后旧 `RAGModel`（`rag.go`）/`MCPModel`（`mcp.go`）已退役，工厂不再创建 `"2"`/`"3"`，其能力由 auto 统一承载；这两个文件暂作死代码保留，待后续手动清理。
   - `rag`：向量生成、文档加载/切块、索引、检索、提示词构造。
   - `rag`：向量生成、文档加载/切块（Eino `document.Transformer` 切分器：非 Markdown 走递归切分、`.md` 走标题感知切分，失败时回退定长滑窗）、索引、检索、提示词构造。
   - `security`：bcrypt 密码哈希与 JWT 签发/解析；`email`/`image`/`tts`/`storage` 为其余适配器。

@@ -54,6 +54,8 @@ type RedisConfig struct {
 	RedisHost string `toml:"host"`
 	// Redis 连接密码，无密码则为空字符串。
 	RedisPassword string `toml:"password"`
+	// RedisPingTimeoutMs 启动阶段 Redis Ping 的超时毫秒数，避免依赖异常时启动长时间阻塞；<=0 时运行时默认 3000。
+	RedisPingTimeoutMs int `toml:"pingTimeoutMs"`
 }
 
 // MysqlConfig MySQL 数据库连接配置。
@@ -100,6 +102,8 @@ type Rabbitmq struct {
 	RabbitmqPassword string `toml:"password"`
 	// 虚拟主机（vhost），用于多租户隔离，默认 "/"。
 	RabbitmqVhost string `toml:"vhost"`
+	// RabbitmqQueue 会话消息持久化使用的队列名；为空时运行时默认 "Message"。
+	RabbitmqQueue string `toml:"queue"`
 }
 
 // RagModelConfig RAG（检索增强生成）模型配置。
@@ -182,6 +186,46 @@ type ChatReplayConfig struct {
 	DefaultModelType string `toml:"defaultModelType"`
 }
 
+// PlannerConfig planner 检索决策器配置，对应 config.toml 的 [plannerConfig] 段。
+//
+// planner 是轻量模型，在每轮回答前决策"是否检索用户私有知识库"，
+// 并产出结构化 TurnPlan（检索 query + 过滤意图 + 置信度）。
+// 详见 draft/planner-router-refactor-plan.md。
+type PlannerConfig struct {
+	// Enabled 是否启用 planner 检索决策；关闭时 auto 模型退化为纯生成。
+	Enabled bool `toml:"enabled"`
+	// ModelName planner 使用的轻量模型名称（可与最终回答模型不同）。
+	ModelName string `toml:"modelName"`
+	// BaseURL planner 模型 API 基础地址。
+	BaseURL string `toml:"baseUrl"`
+	// PlannerAPIKey planner 模型 API Key；独立于 aiModelConfig.apiKey，支持 planner 使用不同 provider。
+	PlannerAPIKey string `toml:"plannerApiKey"`
+	// HistoryWindow planner 决策时回溯的最近消息条数上限；<=0 时默认 8。
+	HistoryWindow int `toml:"historyWindow"`
+	// TimeoutMs planner 调用超时毫秒数，超时降级为不检索；<=0 时默认 1200。
+	TimeoutMs int `toml:"timeoutMs"`
+}
+
+// McpConfig MCP（Model Context Protocol）工具服务配置，对应 config.toml 的 [mcpConfig] 段。
+//
+// auto 模型在首次生成时懒连接该地址的 MCP Server，拉取工具集注入 ReAct Agent；
+// 为空时退化为无工具纯生成。Server 临时不可用时本次降级，下次调用自动重试。
+type McpConfig struct {
+	// BaseURL MCP Server 的 Streamable HTTP 端点，如 "http://localhost:8081/mcp"。
+	BaseURL string `toml:"baseUrl"`
+}
+
+// ImageServiceConfig 图像识别服务配置，对应 config.toml 的 [imageServiceConfig] 段。
+//
+// 当前用于 ONNX Runtime 图像识别（MobileNetV2），模型与标签文件路径随部署环境变化，
+// 因此从组合根常量迁出到配置，避免换机器即失效。
+type ImageServiceConfig struct {
+	// ImageModelPath ONNX 模型文件路径。
+	ImageModelPath string `toml:"modelPath"`
+	// ImageLabelPath 类别标签文件路径。
+	ImageLabelPath string `toml:"labelPath"`
+}
+
 // ============================================================================
 // 聚合配置 & 全局单例
 // ============================================================================
@@ -215,6 +259,12 @@ type Config struct {
 	AIModelConfig `toml:"aiModelConfig"`
 	// 对应 [chatReplayConfig] 段
 	ChatReplayConfig `toml:"chatReplayConfig"`
+	// 对应 [plannerConfig] 段
+	PlannerConfig `toml:"plannerConfig"`
+	// 对应 [mcpConfig] 段
+	McpConfig `toml:"mcpConfig"`
+	// 对应 [imageServiceConfig] 段
+	ImageServiceConfig `toml:"imageServiceConfig"`
 }
 
 // RedisKeyConfig 定义 Redis 中使用的 key 命名模板。

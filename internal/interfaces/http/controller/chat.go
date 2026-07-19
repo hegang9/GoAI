@@ -21,7 +21,7 @@ func (h *Handlers) GetUserSessions(c *gin.Context) {
 // CreateSessionAndSendMessage 创建新会话并返回首条 AI 回复。
 func (h *Handlers) CreateSessionAndSendMessage(c *gin.Context, req dto.CreateSessionRequest) {
 	accountNo := c.GetString("accountNo")
-	result, errCode := h.Chat.CreateSessionAndSend(c.Request.Context(), accountNo, req.UserQuestion, req.ModelType, toRAGFilter(req.StoredName, req.Headers))
+	result, errCode := h.Chat.CreateSessionAndSend(c.Request.Context(), accountNo, req.UserQuestion, toRAGFilter(req.StoredName, req.Headers))
 	httpx.JSON(c, &dto.CreateSessionResponse{AiInformation: result.Content, SessionID: result.SessionID}, errCode)
 }
 
@@ -45,7 +45,7 @@ func (h *Handlers) CreateStreamSessionAndSendMessage(c *gin.Context, req dto.Cre
 		return
 	}
 
-	errCode = h.Chat.StreamToSession(c.Request.Context(), accountNo, sessionID, req.UserQuestion, req.ModelType, toRAGFilter(req.StoredName, req.Headers), writer.Chunk())
+	errCode = h.Chat.StreamToSession(c.Request.Context(), accountNo, sessionID, req.UserQuestion, toRAGFilter(req.StoredName, req.Headers), writer.Chunk())
 	if errCode != code.CodeSuccess {
 		c.SSEvent("error", gin.H{"message": "Failed to send message"})
 		return
@@ -57,7 +57,7 @@ func (h *Handlers) CreateStreamSessionAndSendMessage(c *gin.Context, req dto.Cre
 // ChatSend 在已有会话中发送消息并返回完整 AI 回复（非 SSE）。
 func (h *Handlers) ChatSend(c *gin.Context, req dto.ChatSendRequest) {
 	accountNo := c.GetString("accountNo")
-	result, errCode := h.Chat.ChatSend(c.Request.Context(), accountNo, req.SessionID, req.UserQuestion, req.ModelType, toRAGFilter(req.StoredName, req.Headers))
+	result, errCode := h.Chat.ChatSend(c.Request.Context(), accountNo, req.SessionID, req.UserQuestion, toRAGFilter(req.StoredName, req.Headers))
 	httpx.JSON(c, &dto.ChatSendResponse{AiInformation: result.Content}, errCode)
 }
 
@@ -71,7 +71,7 @@ func (h *Handlers) ChatStreamSend(c *gin.Context, req dto.ChatSendRequest) {
 		return
 	}
 
-	errCode := h.Chat.StreamToSession(c.Request.Context(), accountNo, req.SessionID, req.UserQuestion, req.ModelType, toRAGFilter(req.StoredName, req.Headers), writer.Chunk())
+	errCode := h.Chat.StreamToSession(c.Request.Context(), accountNo, req.SessionID, req.UserQuestion, toRAGFilter(req.StoredName, req.Headers), writer.Chunk())
 	if errCode != code.CodeSuccess {
 		c.SSEvent("error", gin.H{"message": "Failed to send message"})
 		return
@@ -86,7 +86,6 @@ func (h *Handlers) ChatHistory(c *gin.Context, req dto.ChatHistoryRequest) {
 	history, errCode := h.Chat.GetChatHistory(c.Request.Context(), accountNo, req.SessionID)
 	httpx.JSON(c, &dto.ChatHistoryResponse{History: toHistoryDTO(history)}, errCode)
 }
-
 
 // toRAGFilter 从请求 DTO 提取过滤字段，构造领域 RAGFilter。
 // storedName/headers 均为可选，全为空时返回零值（不过滤）。

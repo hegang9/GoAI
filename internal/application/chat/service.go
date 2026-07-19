@@ -39,13 +39,14 @@ type Service struct {
 	sessionRepo domainchat.SessionRepository
 	// messageRepo 消息持久化端口，用于冷会话懒加载历史。
 	messageRepo domainchat.MessageRepository
-	// defaultModelType 查历史等无需用户指定模型时的默认模型类型（来自 chatReplayConfig）。
+	// defaultModelType 内部创建会话使用的默认模型类型（来自 chatReplayConfig）。
+	// Phase 1 下线用户手动选路后统一用此类型创建；Phase 2 已切换为 "auto"（planner 驱动）。
 	defaultModelType string
 }
 
 // NewService 创建会话应用服务。
 //
-// defaultModelType 为空时回退为 "1"（OpenAI 兼容模型）。
+// defaultModelType 为空时回退为 "auto"（自动编排模型）。
 func NewService(
 	manager *domainchat.Manager,
 	sessionRepo domainchat.SessionRepository,
@@ -53,7 +54,7 @@ func NewService(
 	defaultModelType string,
 ) *Service {
 	if defaultModelType == "" {
-		defaultModelType = "1"
+		defaultModelType = "auto"
 	}
 	return &Service{
 		manager:          manager,
@@ -86,13 +87,13 @@ func (s *Service) GetUserSessions(ctx context.Context, accountNo string) ([]Sess
 // CreateSessionAndSend 创建新会话并发送首条消息，返回 AI 回复与会话 ID。
 //
 // filter 为可选的 RAG 检索过滤范围（限定来源文档/章节）；非 RAG 模型会忽略它。
-func (s *Service) CreateSessionAndSend(ctx context.Context, accountNo, question, modelType string, filter domainchat.RAGFilter) (AIResult, code.Code) {
+func (s *Service) CreateSessionAndSend(ctx context.Context, accountNo, question string, filter domainchat.RAGFilter) (AIResult, code.Code) {
 	session, errCode := s.createSession(ctx, accountNo, question)
 	if errCode != code.CodeSuccess {
 		return AIResult{}, errCode
 	}
 
-	conv, err := s.manager.GetOrCreate(ctx, accountNo, session.ID, modelType, modelParams(accountNo))
+	conv, err := s.manager.GetOrCreate(ctx, accountNo, session.ID, s.defaultModelType, modelParams(accountNo))
 	if err != nil {
 		logger.Error("CreateSessionAndSend GetOrCreate failed", "err", err)
 		return AIResult{}, code.AIModelFail
@@ -119,12 +120,12 @@ func (s *Service) CreateStreamSession(ctx context.Context, accountNo, question s
 // 发送前先 ensureSessionLoaded，确保冷会话的历史上下文已从 DB 加载到内存。
 //
 // filter 为可选的 RAG 检索过滤范围（限定来源文档/章节）。
-func (s *Service) StreamToSession(ctx context.Context, accountNo, sessionID, question, modelType string, filter domainchat.RAGFilter, onChunk func(chunk string)) code.Code {
-	if err := s.ensureSessionLoaded(ctx, accountNo, sessionID, modelType); err != nil {
+func (s *Service) StreamToSession(ctx context.Context, accountNo, sessionID, question string, filter domainchat.RAGFilter, onChunk func(chunk string)) code.Code {
+	if err := s.ensureSessionLoaded(ctx, accountNo, sessionID); err != nil {
 		return code.CodeServerBusy
 	}
 
-	conv, err := s.manager.GetOrCreate(ctx, accountNo, sessionID, modelType, modelParams(accountNo))
+	conv, err := s.manager.GetOrCreate(ctx, accountNo, sessionID, s.defaultModelType, modelParams(accountNo))
 	if err != nil {
 		logger.Error("StreamToSession GetOrCreate failed", "err", err)
 		return code.AIModelFail
@@ -140,12 +141,12 @@ func (s *Service) StreamToSession(ctx context.Context, accountNo, sessionID, que
 // 发送前先 ensureSessionLoaded，确保 AI 生成时能拿到完整会话历史。
 //
 // filter 为可选的 RAG 检索过滤范围（限定来源文档/章节）。
-func (s *Service) ChatSend(ctx context.Context, accountNo, sessionID, question, modelType string, filter domainchat.RAGFilter) (AIResult, code.Code) {
-	if err := s.ensureSessionLoaded(ctx, accountNo, sessionID, modelType); err != nil {
+func (s *Service) ChatSend(ctx context.Context, accountNo, sessionID, question string, filter domainchat.RAGFilter) (AIResult, code.Code) {
+	if err := s.ensureSessionLoaded(ctx, accountNo, sessionID); err != nil {
 		return AIResult{}, code.CodeServerBusy
 	}
 
-	conv, err := s.manager.GetOrCreate(ctx, accountNo, sessionID, modelType, modelParams(accountNo))
+	conv, err := s.manager.GetOrCreate(ctx, accountNo, sessionID, s.defaultModelType, modelParams(accountNo))
 	if err != nil {
 		logger.Error("ChatSend GetOrCreate failed", "err", err)
 		return AIResult{}, code.AIModelFail
@@ -163,7 +164,7 @@ func (s *Service) ChatSend(ctx context.Context, accountNo, sessionID, question, 
 // 冷会话会先通过 ensureSessionLoaded 从 DB 懒加载；加载后仍无 Conversation（空会话）
 // 则返回空列表而非 404，与前端 switchSession 的按需拉取语义一致。
 func (s *Service) GetChatHistory(ctx context.Context, accountNo, sessionID string) ([]MessageView, code.Code) {
-	if err := s.ensureSessionLoaded(ctx, accountNo, sessionID, s.defaultModelType); err != nil {
+	if err := s.ensureSessionLoaded(ctx, accountNo, sessionID); err != nil {
 		return nil, code.CodeServerBusy
 	}
 

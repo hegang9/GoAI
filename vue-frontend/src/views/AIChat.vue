@@ -20,12 +20,6 @@
         >
           同步历史数据
         </button>
-        <label for="modelType">选择模型：</label>
-        <select id="modelType" v-model="selectedModel" class="chat-select">
-          <option value="1">阿里百炼</option>
-          <option value="2">阿里百炼 RAG</option>
-          <option value="3">阿里百炼 MCP</option>
-        </select>
         <label for="streamingMode" class="chat-inline-label">
           <input type="checkbox" id="streamingMode" v-model="isStreaming" />
           流式响应
@@ -88,8 +82,7 @@ export default {
   name: "AIChat",
   components: {ChatLayout, SessionSidebar, ChatTopBar, MessageList, ChatInput},
   setup() {
-    // 选中模型 / 流式 / 检索范围属于本页面专属状态，留在 view 内
-    const selectedModel = ref("1");
+    // 流式 / 检索范围属于本页面专属状态，留在 view 内
     const isStreaming = ref(false);
     const selectedDoc = ref("");
     const fileInput = ref(null);
@@ -105,7 +98,6 @@ export default {
       currentSessionId: session.currentSessionId,
       tempSession: session.tempSession,
       currentMessages: session.currentMessages,
-      selectedModel,
       selectedDoc,
     });
 
@@ -178,7 +170,6 @@ export default {
       // tts
       playTTS,
       // 本页状态
-      selectedModel,
       isStreaming,
       selectedDoc,
       fileInput,

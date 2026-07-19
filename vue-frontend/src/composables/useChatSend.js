@@ -4,15 +4,15 @@ import api from '../utils/api'
 
 // 消息发送：普通对话 + 流式 SSE 解析。
 // 把 SSE 协议解析、错误回滚等细节收敛在此，view 只调用 sendMessage。
-export function useChatSend({ sessions, currentSessionId, tempSession, currentMessages, selectedModel, selectedDoc }) {
+export function useChatSend({ sessions, currentSessionId, tempSession, currentMessages, selectedDoc }) {
   const loading = ref(false)
 
   // 构造请求体：临时会话走 -new-session 接口，正式会话带 sessionId
   const buildBody = (question) => {
     const filter = selectedDoc.value ? { storedName: selectedDoc.value } : {}
     return tempSession.value
-      ? { question, modelType: selectedModel.value, ...filter }
-      : { question, modelType: selectedModel.value, sessionId: currentSessionId.value, ...filter }
+      ? { question, ...filter }
+      : { question, sessionId: currentSessionId.value, ...filter }
   }
 
   // 普通发送
