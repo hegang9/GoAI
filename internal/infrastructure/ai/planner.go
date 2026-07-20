@@ -102,12 +102,18 @@ func (p *Planner) planWithLLM(ctx context.Context, accountNo string, messages []
 	planCtx, cancel := context.WithTimeout(ctx, time.Duration(p.timeoutMs)*time.Millisecond)
 	defer cancel()
 
-	// 调用 LLM 判断
+	// 调用 LLM 判断（带计时，供观测 latency.plan_ms）
+	planStart := time.Now()
 	resp, err := p.llm.Generate(planCtx, []*schema.Message{
 		{Role: schema.User, Content: p.buildPlannerPrompt(messages)},
 	})
+	planMs := time.Since(planStart).Milliseconds()
 	if err != nil {
-		logger.Warn("Planner LLM failed, fallback to no retrieval", "accountNo", accountNo, "err", err)
+		logger.Warn("Planner LLM failed, fallback to no retrieval",
+			"accountNo", accountNo,
+			"fallback.reason", "llm_error",
+			"latency.plan_ms", planMs,
+			"err", err)
 		return TurnPlan{NeedRetrieval: false, Source: "fallback", Confidence: "low", Reason: "planner llm调用失败"}
 	}
 
@@ -115,7 +121,11 @@ func (p *Planner) planWithLLM(ctx context.Context, accountNo string, messages []
 	plan, ok := parsePlannerJSON(resp.Content)
 	// TODO：判断这里是否需要重试，防止一次输出不合法就回退普通聊天
 	if !ok {
-		logger.Warn("Planner JSON parse failed, fallback to no retrieval", "accountNo", accountNo, "raw", resp.Content)
+		logger.Warn("Planner JSON parse failed, fallback to no retrieval",
+			"accountNo", accountNo,
+			"fallback.reason", "json_parse_error",
+			"latency.plan_ms", planMs,
+			"raw", resp.Content)
 		return TurnPlan{NeedRetrieval: false, Source: "fallback", Confidence: "low", Reason: "planner 输出非法"}
 	}
 	plan.Source = "planner"
@@ -127,10 +137,11 @@ func (p *Planner) planWithLLM(ctx context.Context, accountNo string, messages []
 	}
 	logger.Info("Planner decision",
 		"accountNo", accountNo,
-		"needRetrieval", plan.NeedRetrieval,
-		"confidence", plan.Confidence,
-		"source", plan.Source,
-		"reason", plan.Reason)
+		"plan.need_retrieval", plan.NeedRetrieval,
+		"plan.confidence", plan.Confidence,
+		"plan.source", plan.Source,
+		"plan.reason", plan.Reason,
+		"latency.plan_ms", planMs)
 	return plan
 }
 

@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"GopherAI/internal/domain/chat"
 	raginfra "GopherAI/internal/infrastructure/rag"
@@ -112,7 +113,9 @@ func (m *AutoRouterModel) ensureAgent(ctx context.Context) (*react.Agent, error)
 			return nil, berr
 		}
 		logger.Warn("AutoRouterModel mcp unavailable, build no-tool agent for this call",
-			"accountNo", m.retrieval.accountNo, "mcpErr", err)
+			"accountNo", m.retrieval.accountNo,
+			"fallback.reason", "mcp_unavailable",
+			"err", err)
 		return agent, nil
 	}
 
@@ -124,14 +127,18 @@ func (m *AutoRouterModel) ensureAgent(ctx context.Context) (*react.Agent, error)
 			m.closeMCP()
 		}
 		logger.Error("AutoRouterModel create react agent failed",
-			"accountNo", m.retrieval.accountNo, "err", err)
+			"accountNo", m.retrieval.accountNo,
+			"fallback.reason", "agent_build_error",
+			"err", err)
 		return nil, fmt.Errorf("create auto router agent failed: %v", err)
 	}
 
-	// 3) 成功则缓存，供后续请求复用
+	// 3) 成功则缓存，供后续请求复用；记录可用工具名供观测
 	m.agent = agent
 	logger.Info("AutoRouterModel ensureAgent success",
-		"accountNo", m.retrieval.accountNo, "toolCount", len(tools))
+		"accountNo", m.retrieval.accountNo,
+		"tools.count", len(tools),
+		"tools.names", toolNames(ctx, tools))
 	return agent, nil
 }
 
@@ -183,6 +190,20 @@ func (m *AutoRouterModel) buildAgent(ctx context.Context, tools []tool.BaseTool)
 	return react.NewAgent(ctx, cfg)
 }
 
+// toolNames 收集工具集的可读名称，供观测日志记录可用工具。
+// Info 调用失败时跳过该工具，不影响其余工具名收集。
+func toolNames(ctx context.Context, tools []tool.BaseTool) []string {
+	names := make([]string, 0, len(tools))
+	for _, t := range tools {
+		info, err := t.Info(ctx)
+		if err != nil || info == nil {
+			continue
+		}
+		names = append(names, info.Name)
+	}
+	return names
+}
+
 // closeMCP 关闭并清空懒连接的 MCP 客户端，调用方需持锁。
 func (m *AutoRouterModel) closeMCP() {
 	if m.mcpClient != nil {
@@ -207,13 +228,19 @@ func (m *AutoRouterModel) Generate(ctx context.Context, history []chat.Message) 
 	// 步骤 2：进入 Agent 前做一次性检索增强（Planner 决策 + 可选 RAG）
 	messages := m.retrieval.Modify(ctx, history)
 
-	// 步骤 3：ReAct 生成（模型可按需 native tool calling）
+	// 步骤 3：ReAct 生成（模型可按需 native tool calling），带计时供观测 latency.answer_ms
+	answerStart := time.Now()
 	out, err := agent.Generate(ctx, messages)
 	if err != nil {
 		logger.Error("AutoRouterModel Generate failed",
-			"accountNo", m.retrieval.accountNo, "err", err)
+			"accountNo", m.retrieval.accountNo,
+			"latency.answer_ms", time.Since(answerStart).Milliseconds(),
+			"err", err)
 		return "", fmt.Errorf("auto router generate failed: %v", err)
 	}
+	logger.Info("AutoRouterModel Generate done",
+		"accountNo", m.retrieval.accountNo,
+		"latency.answer_ms", time.Since(answerStart).Milliseconds())
 	return out.Content, nil
 }
 
@@ -231,11 +258,14 @@ func (m *AutoRouterModel) Stream(ctx context.Context, history []chat.Message, cb
 	// 步骤 2：进入 Agent 前做一次性检索增强（Planner 决策 + 可选 RAG）
 	messages := m.retrieval.Modify(ctx, history)
 
-	// 步骤 3：开启 ReAct 流式输出
+	// 步骤 3：开启 ReAct 流式输出（带计时供观测 latency.answer_ms，覆盖到首字+全程）
+	answerStart := time.Now()
 	stream, err := agent.Stream(ctx, messages)
 	if err != nil {
 		logger.Error("AutoRouterModel Stream start failed",
-			"accountNo", m.retrieval.accountNo, "err", err)
+			"accountNo", m.retrieval.accountNo,
+			"latency.answer_ms", time.Since(answerStart).Milliseconds(),
+			"err", err)
 		return "", fmt.Errorf("auto router stream failed: %v", err)
 	}
 	defer stream.Close()
@@ -249,7 +279,9 @@ func (m *AutoRouterModel) Stream(ctx context.Context, history []chat.Message, cb
 		}
 		if err != nil {
 			logger.Error("AutoRouterModel Stream recv failed",
-				"accountNo", m.retrieval.accountNo, "err", err)
+				"accountNo", m.retrieval.accountNo,
+				"latency.answer_ms", time.Since(answerStart).Milliseconds(),
+				"err", err)
 			return "", fmt.Errorf("auto router stream recv failed: %v", err)
 		}
 		// 工具调用中间态 Content 为空，自然跳过；只把最终自然语言分片推给前端
@@ -258,6 +290,9 @@ func (m *AutoRouterModel) Stream(ctx context.Context, history []chat.Message, cb
 			cb(msg.Content)
 		}
 	}
+	logger.Info("AutoRouterModel Stream done",
+		"accountNo", m.retrieval.accountNo,
+		"latency.answer_ms", time.Since(answerStart).Milliseconds())
 	return full.String(), nil
 }
 

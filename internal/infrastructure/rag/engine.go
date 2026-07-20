@@ -340,7 +340,41 @@ func escapeChars(s, specialChars string) string {
 // 参数 f 为元数据过滤范围；传入零值 RetrieveFilter{} 表示不过滤，行为与改动前一致。
 // 过滤条件经 toFilterExpr 转换为 RediSearch FILTER 子句，在向量召回阶段就生效（pre-filter），
 // 缩小检索范围后再参与距离粗筛与精排。
-func (e *Engine) Retrieve(ctx context.Context, accountNo, query string, f RetrieveFilter) (prompt string, hasContext bool, err error) {
+// DocScore 是带评分的召回块，供评测观测各阶段排序与分数。
+//
+// 字段从 schema.Document 元数据提取，距离/精排分缺失时填 -1 表示「无此分数」。
+type DocScore struct {
+	// Content 块正文。
+	Content string
+	// StoredName 来源文档名，来自 metadata["stored"]。
+	StoredName string
+	// Headers 章节路径关键字，来自 metadata["headers"]。
+	Headers string
+	// Distance 粗排向量距离（COSINE，越小越相关），无则 -1。
+	Distance float64
+	// RerankScore 精排相关分（越大越相关），无则 -1。
+	RerankScore float64
+}
+
+// RetrieveDetail 是检索四阶段的中间结果，供评测脚本判断命中质量与精排增益。
+//
+// 阶段语义：
+//   - Retrieved：粗排召回（含距离）
+//   - Relevant：距离粗筛后
+//   - Reranked：精排后（未启用精排则同 Relevant）
+//   - Final：邻居扩展后，实际拼进 prompt 的
+type RetrieveDetail struct {
+	Retrieved []DocScore
+	Relevant  []DocScore
+	Reranked  []DocScore
+	Final     []DocScore
+}
+
+// RetrieveDetail 执行检索并返回四阶段完整明细，供评测脚本判断命中质量。
+//
+// 与 Retrieve 共用主体逻辑，只是不拼 prompt、把粗排/粗筛/精排/邻居扩展的中间结果吐出。
+// 未启用精排时 Reranked 与 Relevant 一致；ContextWindow=0 时 Final 与 Reranked 一致。
+func (e *Engine) RetrieveDetail(ctx context.Context, accountNo, query string, f RetrieveFilter) (RetrieveDetail, error) {
 	// 是否本次实际启用精排：需同时满足配置开启与注入了精排器。
 	rerankActive := e.cfg.RerankEnable && e.reranker != nil
 
@@ -376,7 +410,7 @@ func (e *Engine) Retrieve(ctx context.Context, accountNo, query string, f Retrie
 
 	rtr, err := redisRetriever.NewRetriever(ctx, retrieverConfig)
 	if err != nil {
-		return "", false, fmt.Errorf("failed to create retriever: %w", err)
+		return RetrieveDetail{}, fmt.Errorf("failed to create retriever: %w", err)
 	}
 
 	// 构造检索选项：WithFilterQuery 是 eino-ext redis retriever 提供的过滤选项，
@@ -390,12 +424,15 @@ func (e *Engine) Retrieve(ctx context.Context, accountNo, query string, f Retrie
 	// 真正执行检索（过滤条件通过 opts 透传给底层 FT.SEARCH 的 FILTER 子句）
 	docs, err := rtr.Retrieve(ctx, query, opts...)
 	if err != nil {
-		return "", false, fmt.Errorf("failed to retrieve documents: %w", err)
+		return RetrieveDetail{}, fmt.Errorf("failed to retrieve documents: %w", err)
 	}
 
 	// 粗筛：按距离阈值丢掉明显不相关的候选（RAG 路由的基础：为空则不注入上下文）。
 	// 这里用的是 cosine 距离，距离越小越相关。
 	relevant := FilterByDistance(docs, e.cfg.MaxDistance)
+
+	// 记录粗筛后、精排前的顺序，供 Reranked 对比精排增益。
+	relevantBeforeRerank := append([]*schema.Document(nil), relevant...)
 
 	// 精排阶段：对粗筛后的候选用 reranker 重新打分排序并截断；
 	// 失败时记录告警并降级为向量排序，保证 RAG 链路不中断。
@@ -404,6 +441,7 @@ func (e *Engine) Retrieve(ctx context.Context, accountNo, query string, f Retrie
 		if topN <= 0 {
 			topN = e.cfg.TopK
 		}
+		// 精排
 		reranked, rerr := e.reranker.Rerank(ctx, query, relevant, topN)
 		if rerr != nil {
 			logger.Warn("rerank failed, fallback to vector order", "accountNo", accountNo, "err", rerr)
@@ -415,7 +453,13 @@ func (e *Engine) Retrieve(ctx context.Context, accountNo, query string, f Retrie
 
 	if len(relevant) == 0 {
 		logger.Info("Retrieve no relevant docs", "accountNo", accountNo, "retrieved", len(docs))
-		return query, false, nil
+		// 仍返回粗排召回明细，便于评测观测「召回了但全被粗筛/精排过滤」的场景。
+		return RetrieveDetail{
+			Retrieved: toDocScores(docs),
+			Relevant:  nil,
+			Reranked:  nil,
+			Final:     nil,
+		}, nil
 	}
 
 	// 上下文增强（small-to-big / 句窗）：检索打分仍用小块保精度，命中后按确定性 key
@@ -458,7 +502,74 @@ func (e *Engine) Retrieve(ctx context.Context, accountNo, query string, f Retrie
 		"retrieved", len(docs),
 		"relevant", len(relevant),
 		"rerankActive", rerankActive)
-	return BuildPrompt(query, relevant), true, nil
+
+	// Reranked 记录精排后的顺序：
+	//   - 启用精排：relevant 此时已是精排+分数过滤后的结果
+	//   - 未启用精排：与粗筛后顺序一致（relevantBeforeRerank）
+	reranked := relevantBeforeRerank
+	if rerankActive {
+		reranked = relevant
+	}
+
+	return RetrieveDetail{
+		Retrieved: toDocScores(docs),
+		Relevant:  toDocScores(relevantBeforeRerank),
+		Reranked:  toDocScores(reranked),
+		Final:     toDocScores(relevant),
+	}, nil
+}
+
+// toDocScores 把 schema.Document 列表转为带评分的 DocScore 列表，提取 stored/headers/distance/rerank_score。
+func toDocScores(docs []*schema.Document) []DocScore {
+	out := make([]DocScore, 0, len(docs))
+	for _, d := range docs {
+		ds := DocScore{Content: d.Content, Distance: -1, RerankScore: -1}
+		if d.MetaData != nil {
+			if s, ok := d.MetaData["stored"].(string); ok {
+				ds.StoredName = s
+			}
+			if h, ok := d.MetaData["headers"].(string); ok {
+				ds.Headers = h
+			}
+			if dist, ok := ParseDistance(d.MetaData["distance"]); ok {
+				ds.Distance = dist
+			}
+			if rs, ok := d.MetaData["rerank_score"].(float64); ok {
+				ds.RerankScore = rs
+			}
+		}
+		out = append(out, ds)
+	}
+	return out
+}
+
+// toDocuments 把 DocScore 列表转回 schema.Document 列表，供 BuildPrompt 拼装 prompt。
+func toDocuments(scores []DocScore) []*schema.Document {
+	out := make([]*schema.Document, 0, len(scores))
+	for _, s := range scores {
+		out = append(out, &schema.Document{Content: s.Content})
+	}
+	return out
+}
+
+// Retrieve 执行检索并构造增强 prompt。
+//
+// 返回值：
+//   - prompt：可直接替换最后一条用户消息的增强 prompt；无命中时回退为原 query
+//   - hasContext：是否命中相关文档，false 时调用方应透传原消息
+//   - hitCount：命中并参与拼装的文档块数（粗筛+精排+邻居扩展后的最终块数），供观测用
+//   - err：检索链路错误
+//
+// 内部复用 RetrieveDetail，行为与重构前一致。
+func (e *Engine) Retrieve(ctx context.Context, accountNo, query string, f RetrieveFilter) (prompt string, hasContext bool, hitCount int, err error) {
+	detail, err := e.RetrieveDetail(ctx, accountNo, query, f)
+	if err != nil {
+		return "", false, 0, err
+	}
+	if len(detail.Final) == 0 {
+		return query, false, 0, nil
+	}
+	return BuildPrompt(query, toDocuments(detail.Final)), true, len(detail.Final), nil
 }
 
 // chunkLocator 从文档元数据解析上下文增强所需的定位信息 (storedName, chunk序号)。

@@ -122,7 +122,7 @@ func (o *RAGModel) buildRAGMessages(ctx context.Context, messages []*schema.Mess
 	}
 	engineFilter := raginfra.RetrieveFilter{StoredName: filter.StoredName, Headers: filter.Headers}
 
-	prompt, hasContext, err := o.engine.Retrieve(ctx, o.accountNo, query, engineFilter)
+	prompt, hasContext, _, err := o.engine.Retrieve(ctx, o.accountNo, query, engineFilter)
 	if err != nil {
 		logger.Warn("RAGModel retrieve failed", "accountNo", o.accountNo, "err", err)
 		return messages

@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"time"
 
 	"GopherAI/internal/domain/chat"
 	raginfra "GopherAI/internal/infrastructure/rag"
@@ -54,17 +55,36 @@ func (r *RetrievalModifier) Modify(ctx context.Context, history []chat.Message) 
 		StoredName: plan.DocFilter.StoredName,
 		Headers:    plan.DocFilter.Headers,
 	}
-	// 实际执行检索
-	prompt, hasContext, err := r.engine.Retrieve(ctx, r.accountNo, plan.RetrievalQuery, engineFilter)
+	// 实际执行检索（带计时，供观测 latency.retrieve_ms）
+	retrieveStart := time.Now()
+	prompt, hasContext, hitCount, err := r.engine.Retrieve(ctx, r.accountNo, plan.RetrievalQuery, engineFilter)
+	retrieveMs := time.Since(retrieveStart).Milliseconds()
 	if err != nil {
 		logger.Warn("RetrievalModifier retrieve failed, fallback to plain",
-			"accountNo", r.accountNo, "err", err)
+			"accountNo", r.accountNo,
+			"plan.source", plan.Source,
+			"fallback.reason", "retrieve_error",
+			"latency.retrieve_ms", retrieveMs,
+			"err", err)
 		return messages
 	}
 	if !hasContext {
 		// 无相关内容：不注入参考文档，避免污染普通对话。
+		logger.Info("RetrievalModifier no relevant docs",
+			"accountNo", r.accountNo,
+			"plan.source", plan.Source,
+			"plan.confidence", plan.Confidence,
+			"retrieval.hit_count", 0,
+			"latency.retrieve_ms", retrieveMs)
 		return messages
 	}
+
+	logger.Info("RetrievalModifier retrieve enhanced",
+		"accountNo", r.accountNo,
+		"plan.source", plan.Source,
+		"plan.confidence", plan.Confidence,
+		"retrieval.hit_count", hitCount,
+		"latency.retrieve_ms", retrieveMs)
 
 	out := make([]*schema.Message, len(messages))
 	copy(out, messages)

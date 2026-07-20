@@ -1,0 +1,5 @@
+{"history":[{"role":"user","content":"你好"},{"role":"assistant","content":"你好！有什么可以帮你的吗？"}],"last_message":"今天天气怎么样","expect":{"need_retrieval":false,"doc_filter":{"storedName":"","headers":""},"query_keywords":[]}}
+{"history":[{"role":"user","content":"请帮我查一下公司报销政策"},{"role":"assistant","content":"好的，我来帮你查。"}],"last_message":"火车票报销标准是多少","expect":{"need_retrieval":true,"doc_filter":{"storedName":"报销制度.md","headers":""},"query_keywords":["火车票","报销","标准"]}}
+{"history":[{"role":"user","content":"员工手册里年假怎么申请"},{"role":"assistant","content":"员工手册中关于年假申请的流程如下……"}],"last_message":"那需要提前几天提交","expect":{"need_retrieval":true,"doc_filter":{"storedName":"员工手册.md","headers":"年假"},"query_keywords":["年假","申请","提前","天数"]}}
+{"history":[{"role":"user","content":"帮我看看 员工手册.md 第三章"},{"role":"assistant","content":"好的。"}],"last_message":"第三章讲了什么","expect":{"need_retrieval":true,"doc_filter":{"storedName":"员工手册.md","headers":"第三章"},"query_keywords":["员工手册","第三章"]}}
+{"history":[{"role":"user","content":"给我讲个笑话"},{"role":"assistant","content":"……"}],"last_message":"再来一个","expect":{"need_retrieval":false,"doc_filter":{"storedName":"","headers":""},"query_keywords":[]}}
