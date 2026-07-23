@@ -10,30 +10,58 @@
 //	logger.Debug("SSE chunk", "content", msg, "len", len(msg))
 //	logger.Fatal("RabbitMQ connection failed", "err", err) // 会 os.Exit(1)
 //
-// 日志级别从低到高：Debug < Info < Warn < Error
-// 默认级别为 Info（Debug 日志不输出），可通过环境变量 LOG_LEVEL=debug 开启。
+// 日志级别从低到高：Debug < Info < Warn < Error。
+// 级别由 defaultLogLevel 常量控制（当前为 debug），修改后需重新编译。
+//
+// 输出目标：stdout 与 logs/ 目录下按日期命名的日志文件（双写）。
+// 单文件超过 maxLogFileSizeMB 后自动轮转，保留 30 天。
 package logger
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 )
+
+const defaultLogDir = "logs"
+const maxLogFileSizeMB = 50
+const defaultLogLevel = "debug"
+
+func ensureLogDir(dir string) error {
+	return os.MkdirAll(dir, 0o755)
+}
+
+func newFileWriter(dir string, maxSizeMB int) (io.Writer, error) {
+	if err := ensureLogDir(dir); err != nil {
+		return nil, err
+	}
+	return rotatelogs.New(
+		filepath.Join(dir, "%Y-%m-%d.log"),
+		rotatelogs.WithRotationSize(int64(maxSizeMB*1024*1024)),
+		rotatelogs.WithRotationTime(24*time.Hour),
+		rotatelogs.WithMaxAge(30*24*time.Hour),
+	)
+}
 
 // InitLogger 根据运行模式初始化全局 logger。
 // 应在启动入口尽早调用（在首次打日志之前）。
 //
-//   - debug 模式：TextHandler，输出到 stderr，格式易读
-//   - release 模式：JSONHandler，输出到 stdout，字段结构化
+// 输出：stdout 与 logs/%Y-%m-%d.log 双写（文件打开失败时仅写 stdout）。
+// 格式由 gin.Mode() 决定：
+//   - debug：TextHandler，人类可读文本
+//   - release / test：JSONHandler，结构化 JSON
 //
-// 日志级别通过环境变量 LOG_LEVEL 控制，可选值：debug、info、warn、error。
-// 默认级别为 info（Debug 日志在生产环境不输出）。
+// 日志级别由 defaultLogLevel 常量决定，可选 debug、info、warn、error。
 func InitLogger() {
 	var level slog.Level
-	switch strings.ToLower(os.Getenv("LOG_LEVEL")) {
+	switch strings.ToLower(defaultLogLevel) {
 	case "debug":
 		level = slog.LevelDebug
 	case "info":
@@ -46,6 +74,17 @@ func InitLogger() {
 		level = slog.LevelInfo
 	}
 
+	fileWriter, err := newFileWriter(defaultLogDir, maxLogFileSizeMB)
+	if err != nil {
+		// SetDefault 之前不能用 slog，直接写 stderr 提示文件日志不可用。
+		fmt.Fprintf(os.Stderr, "file logger disabled: %v\n", err)
+	}
+
+	var std_out io.Writer = os.Stdout
+	if fileWriter != nil {
+		std_out = io.MultiWriter(std_out, fileWriter)
+	}
+
 	// AddSource 让每条日志自动附带源文件名和行号，便于定位代码。
 	opts := &slog.HandlerOptions{
 		AddSource: true,
@@ -53,11 +92,11 @@ func InitLogger() {
 	}
 
 	var handler slog.Handler
-	// debug 模式输出易读文本到 stderr；release 模式输出结构化 JSON 到 stdout。
+	// debug 模式用易读文本；release / test 模式用结构化 JSON。
 	if gin.Mode() == "debug" {
-		handler = slog.NewTextHandler(os.Stderr, opts)
+		handler = slog.NewTextHandler(std_out, opts)
 	} else {
-		handler = slog.NewJSONHandler(os.Stdout, opts)
+		handler = slog.NewJSONHandler(std_out, opts)
 	}
 
 	slog.SetDefault(slog.New(handler))
@@ -78,7 +117,7 @@ func Warn(msg string, args ...any) {
 	slog.Warn(msg, args...)
 }
 
-// Debug 输出 Debug 级别日志，仅在 LOG_LEVEL=debug 时可见。
+// Debug 输出 Debug 级别日志，仅在 defaultLogLevel 为 debug 时可见。
 func Debug(msg string, args ...any) {
 	slog.Debug(msg, args...)
 }

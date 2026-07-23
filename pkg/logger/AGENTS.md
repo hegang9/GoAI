@@ -3,6 +3,7 @@
 ## 模块职责
 
 - 本目录封装项目统一日志初始化与输出接口。
+- 日志级别由 `defaultLogLevel` 常量控制；输出为 stdout + `logs/` 文件双写，格式随 `gin.Mode()` 在 Text/JSON 间切换。
 
 ## 变更约束
 

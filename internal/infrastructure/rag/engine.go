@@ -13,6 +13,7 @@ import (
 	embeddingArk "github.com/cloudwego/eino-ext/components/embedding/ark"
 	redisIndexer "github.com/cloudwego/eino-ext/components/indexer/redis"
 	redisRetriever "github.com/cloudwego/eino-ext/components/retriever/redis"
+	embeddingOpenAI "github.com/cloudwego/eino-ext/libs/acl/openai"
 	"github.com/cloudwego/eino/components/embedding"
 	"github.com/cloudwego/eino/components/retriever"
 	"github.com/cloudwego/eino/schema"
@@ -158,6 +159,21 @@ var _ domainrag.Indexer = (*Engine)(nil)
 
 // newEmbedder 创建向量生成器；API Key 由统一配置注入。
 func newEmbedder(ctx context.Context, cfg Config) (embedding.Embedder, error) {
+	// SiliconFlow 兼容 OpenAI Embeddings，并支持通过 dimensions 指定输出维度。
+	if strings.Contains(strings.ToLower(cfg.BaseURL), "siliconflow.cn") {
+		dimensions := cfg.Dimension
+		emb, err := embeddingOpenAI.NewEmbeddingClient(ctx, &embeddingOpenAI.EmbeddingConfig{
+			BaseURL:    cfg.BaseURL,
+			APIKey:     cfg.APIKey,
+			Model:      cfg.EmbeddingModel,
+			Dimensions: &dimensions,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create SiliconFlow embedder: %w", err)
+		}
+		return emb, nil
+	}
+
 	emb, err := embeddingArk.NewEmbedder(ctx, &embeddingArk.EmbeddingConfig{
 		BaseURL: cfg.BaseURL,
 		APIKey:  cfg.APIKey,

@@ -10,7 +10,6 @@ import (
 
 func TestInitLogger_DoesNotPanic(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	t.Setenv("LOG_LEVEL", "info")
 
 	logger.InitLogger()
 	logger.Info("logger test info")

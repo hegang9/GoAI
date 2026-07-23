@@ -78,12 +78,12 @@ go test ./test/... -v
 
 在「运行和调试」面板选择配置后按 F5：
 
-| 配置名               | 说明                                                                                                                           |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `GopherAI: 后端`     | 以 Delve 调试 `cmd/server`，工作目录为项目根（读取 `config/config.toml`），`LOG_LEVEL=debug`；启动前/结束调试后自动释放 `9090` |
-| `GopherAI: 前端`     | 先启动 `vue-frontend` dev server，再打开 Chrome 调试 `http://localhost:8080`；结束调试后自动释放 `8080` 等前端端口             |
-| `GopherAI: 全栈调试` | 同时启动后端与前端（前端代理 `/api` → `localhost:9090`）；启动前清理残留端口，停止调试后释放 `9090`/`8080` 等                  |
-| `GopherAI: MCP 服务` | 独立调试 `cmd/mcp` 天气工具服务（`:8081`）；启动前/结束调试后自动释放 `8081`                                                   |
+| 配置名               | 说明                                                                                                                                                                        |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GopherAI: 后端`     | 以 Delve 调试 `cmd/server`，工作目录为项目根（读取 `config/config.toml`）；Gin 默认 debug 模式（TextHandler），日志双写 stdout 与 `logs/`；启动前/结束调试后自动释放 `9090` |
+| `GopherAI: 前端`     | 先启动 `vue-frontend` dev server，再打开 Chrome 调试 `http://localhost:8080`；结束调试后自动释放 `8080` 等前端端口                                                          |
+| `GopherAI: 全栈调试` | 同时启动后端与前端（前端代理 `/api` → `localhost:9090`）；启动前清理残留端口，停止调试后释放 `9090`/`8080` 等                                                               |
+| `GopherAI: MCP 服务` | 独立调试 `cmd/mcp` 天气工具服务（`:8081`）；启动前/结束调试后自动释放 `8081`                                                                                                |
 
 前置条件：已安装 [Go 扩展](https://marketplace.visualstudio.com/items?itemName=golang.go) 与 Delve；前端调试需本机 Chrome。`vue-frontend` 依赖通过 `npm install` 安装。端口清理由 `.vscode/tasks.json` 调用 `.vscode/kill-ports.cmd` 完成（需 Windows，管理员权限非必须）。
 
@@ -130,18 +130,18 @@ apiKey = "your-api-key"
 
 ```toml
 [ragModelConfig]
-embeddingModel = "text-embedding-v4"   # 向量嵌入模型
+embeddingModel = "Qwen/Qwen3-Embedding-4B"   # 向量嵌入模型
 apiKey = "your-api-key"                 # RAG 独立鉴权凭证（嵌入 + 重排共用）
-baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-dimension = 1024                        # 向量维度，需与嵌入模型匹配
+baseUrl = "https://api.siliconflow.cn/v1"
+dimension = 2048                        # 向量维度；SiliconFlow Qwen3 Embedding 会按此参数返回
 chunkSize = 512                         # 单个文本块最大字符数（<=0 默认 512；递归切分按自然边界切，单块长度可能略有出入）
 chunkOverlap = 64                       # 相邻块重叠字符数（<0 默认 64）
 topK = 5                                # 检索返回的最相关块数（<=0 默认 5）
 maxDistance = 0.6                       # COSINE 距离阈值，超出视为不相关（<=0 默认 0.6）
 enableQueryRewrite = false             # 是否用 LLM 把多轮追问改写为自包含检索 query
-rerankEnable = false                   # 是否启用精排：召回放大 → 交叉编码重排 → 截断 TopN
-rerankModel = "doubao-rerank"          # 重排模型名称（启用精排时生效）
-rerankBaseUrl = "https://your-rerank-endpoint/rerank"  # 重排服务完整地址（含 path）
+rerankEnable = true                    # 是否启用精排：召回放大 → 交叉编码重排 → 截断 TopN
+rerankModel = "Qwen/Qwen3-Reranker-4B" # SiliconFlow 重排模型
+rerankBaseUrl = "https://api.siliconflow.cn/v1/rerank"  # 重排服务完整地址
 recallTopK = 20                         # 启用精排时的召回候选数（粗排放大，<=0 默认 20）
 rerankTopK = 5                          # 精排后保留的文档数（<=0 时沿用 topK）
 rerankMinScore = 0.0                    # 精排最低相关分阈值（越大越相关），0 表示不过滤
@@ -171,7 +171,11 @@ apiKey = "your-api-key"
 
 模型连接信息不再从系统环境变量兜底读取；后端启动前请在 `config/config.toml` 中配置完整。
 
-日志级别通过 `LOG_LEVEL` 控制，可选 `debug`、`info`、`warn`、`error`，默认 `info`。
+后端日志由 `pkg/logger` 统一初始化（`bootstrap.New` 首行调用 `InitLogger`）：
+
+- **输出**：stdout 与 `logs/%Y-%m-%d.log` 双写；单文件超过 50MB 自动轮转，保留 30 天
+- **格式**：Gin `debug` 模式为易读文本（TextHandler），`release` / `test` 为 JSON（JSONHandler）；F5 调试后端时 Gin 未设 `GIN_MODE`，默认为 debug
+- **级别**：由 `pkg/logger/logger.go` 中 `defaultLogLevel` 常量控制（当前为 `debug`），修改后需重新编译；不设 `LOG_LEVEL` 环境变量
 
 ## 用户身份字段
 
@@ -420,7 +424,7 @@ type Response struct {
 - `contextWindow > 0` 时启用上下文增强（small-to-big）：检索/打分仍用小块保精度，命中后按确定性 key 取回前后各 N 个邻居块，按 chunk 序拼接并跨命中去重合并相邻 span 后交 `BuildPrompt`。索引期额外写入 `chunk`/`stored` 普通 HASH 字段用于定位（不改 `FT.CREATE` schema），存量旧文档无此字段时安全跳过、不触发扩展。
 - `enableHeaderInjection = true` 时，把「来源：foo.md｜章节：H1 > H2」前缀拼到块正文首部（同时进入向量与提示词）并写入 `headers` 元数据；引用展示行扩展为 `[文档 N｜来源：foo.md｜章节：H1 > H2]`，非 Markdown 文件以文件名兜底。
 - 上述三项分块索引升级均**默认关闭、互不强耦合**，遵循 `newdocs_only` 灰度：开启后仅对新上传文档生效，不迁移存量索引，存量按旧 schema 优雅降级。
-- 三项升级的关键节点均有结构化日志：索引入口记录开关状态，语义切分记录选中/开始/断点/硬切/降级，块头标签记录注入块数，上下文增强记录扩展前后数量与邻居读取统计；邻居块 key 级追踪使用 `Debug` 日志，可通过 `LOG_LEVEL=debug` 打开。
+- 三项升级的关键节点均有结构化日志：索引入口记录开关状态，语义切分记录选中/开始/断点/硬切/降级，块头标签记录注入块数，上下文增强记录扩展前后数量与邻居读取统计；邻居块 key 级追踪使用 `Debug` 日志（当前 `defaultLogLevel` 为 `debug` 时可见）。
 - 图片识别依赖服务器上的 ONNX 模型路径 `/root/models/mobilenetv2/mobilenetv2-7.onnx` 和标签文件 `/root/imagenet_classes.txt`。
 - TTS 接口依赖百度智能云语音合成配置。
 - 受保护接口需要请求头 `Authorization: Bearer <token>`；JWT 中间件也兼容 URL 参数 `?token=<token>`。

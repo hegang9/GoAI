@@ -22,3 +22,9 @@ docs/API.md
 
 # 可执行文件
 .exe
+
+# 日志
+logs/
+*.log
+
+uploads/

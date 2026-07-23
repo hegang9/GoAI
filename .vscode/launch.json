@@ -8,9 +8,6 @@
       "mode": "auto",
       "program": "${workspaceFolder}/cmd/server",
       "cwd": "${workspaceFolder}",
-      "env": {
-        "LOG_LEVEL": "debug"
-      },
       "preLaunchTask": "gopherai: release dev ports",
       "postDebugTask": "gopherai: release dev ports"
     },
@@ -40,12 +37,7 @@
       "mode": "auto",
       "program": "${workspaceFolder}/cmd/mcp",
       "cwd": "${workspaceFolder}/cmd/mcp",
-      "args": [
-        "--mode",
-        "server",
-        "--http-addr",
-        ":8081"
-      ],
+      "args": ["--mode", "server", "--http-addr", ":8081"],
       "preLaunchTask": "gopherai: release dev ports",
       "postDebugTask": "gopherai: release dev ports"
     }
@@ -53,10 +45,7 @@
   "compounds": [
     {
       "name": "GopherAI: 全栈调试",
-      "configurations": [
-        "GopherAI: 后端",
-        "GopherAI: 前端"
-      ],
+      "configurations": ["GopherAI: 后端", "GopherAI: 前端"],
       "stopAll": true,
       "preLaunchTask": "gopherai: release dev ports",
       "postDebugTask": "gopherai: release dev ports"
