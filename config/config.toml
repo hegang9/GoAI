@@ -40,9 +40,10 @@ queue = "Message"
 
 [ragModelConfig]
 embeddingModel = "text-embedding-v4"
-chatModelName = "qwen-turbo"
 docDir = "./docs"
 baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+# RAG 鉴权凭证（嵌入 + 重排服务共用）；独立于 auto 模型，允许 RAG 与 auto 使用不同 provider
+apiKey = "your-api-key"
 dimension = 1024
 # 单个文本块最大字符数（rune），过大易超出 embedding 输入上限
 chunkSize = 512
@@ -83,8 +84,9 @@ enableFilterIntent = true
 voiceServiceApiKey = "baiduApiKey"
 voiceServiceSecretKey = "baiduSecretKey"
 
-[aiModelConfig]
-modelName = "qwen-turbo"
+[autoModelConfig]
+# auto 主力模型的对话模型（需支持 tool calling）；本段完全自洽，独立于 RAG
+modelName = "qwen-plus"
 baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 apiKey = "your-api-key"
 

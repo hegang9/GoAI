@@ -111,12 +111,12 @@ type Rabbitmq struct {
 type RagModelConfig struct {
 	// 嵌入模型名称，如阿里云 "text-embedding-v4"。
 	RagEmbeddingModel string `toml:"embeddingModel"`
-	// 对话模型名称，如 "qwen-turbo"。
-	RagChatModelName string `toml:"chatModelName"`
 	// 用户上传文档的存储目录。
 	RagDocDir string `toml:"docDir"`
-	// 嵌入/对话 API 的基础 URL。
+	// 嵌入 API 的基础 URL。
 	RagBaseUrl string `toml:"baseUrl"`
+	// RagAPIKey RAG 鉴权凭证；RAG 独立于 auto 模型，嵌入与重排服务共用此 Key。
+	RagAPIKey string `toml:"apiKey"`
 	// 向量维度，如 text-embedding-v4 为 1024。
 	RagDimension int `toml:"dimension"`
 	// RagChunkSize 单个文本块的最大字符（rune）数；<=0 时运行时默认 512。
@@ -165,14 +165,18 @@ type VoiceServiceConfig struct {
 	VoiceServiceSecretKey string `toml:"voiceServiceSecretKey"`
 }
 
-// AIModelConfig AI 模型通用配置。
-type AIModelConfig struct {
-	// 普通 OpenAI 兼容对话模型名称。
-	AIModelName string `toml:"modelName"`
-	// 普通 OpenAI 兼容对话 API 基础 URL。
-	AIBaseURL string `toml:"baseUrl"`
-	// AI 服务 API Key。
-	APIKey string `toml:"apiKey"`
+// AutoModelConfig auto 自动编排模型的对话模型配置。
+//
+// auto 是项目主力模型（planner 检索决策 + RetrievalModifier 检索增强 + ReAct 工具调用）。
+// 本段完全自洽：模型名、Base URL、API Key 独立于 RAG（[ragModelConfig]），
+// 允许 auto 与 RAG 嵌入使用不同 provider。
+type AutoModelConfig struct {
+	// AutoModelName auto 模型使用的对话模型名称，需支持 tool calling。
+	AutoModelName string `toml:"modelName"`
+	// AutoBaseURL auto 模型对话 API 基础地址（OpenAI 兼容）。
+	AutoBaseURL string `toml:"baseUrl"`
+	// AutoAPIKey auto 模型 API Key。
+	AutoAPIKey string `toml:"apiKey"`
 }
 
 // ChatReplayConfig 会话历史回放配置，对应 config.toml 的 [chatReplayConfig] 段。
@@ -182,7 +186,7 @@ type AIModelConfig struct {
 type ChatReplayConfig struct {
 	// SessionLimit 启动时预热的最近活跃会话数量上限（全局，非 per-user）；<=0 时运行时代码默认 50。
 	SessionLimit int `toml:"sessionLimit"`
-	// DefaultModelType 启动预热与查询历史时使用的默认模型类型（"1" OpenAI / "2" RAG 等）；为空时默认 "1"。
+	// DefaultModelType 启动预热与查询历史时使用的默认模型类型（当前统一为 "auto"）；为空时默认 "auto"。
 	DefaultModelType string `toml:"defaultModelType"`
 }
 
@@ -255,8 +259,8 @@ type Config struct {
 	RagModelConfig `toml:"ragModelConfig"`
 	// 对应 [voiceServiceConfig] 段
 	VoiceServiceConfig `toml:"voiceServiceConfig"`
-	// 对应 [aiModelConfig] 段
-	AIModelConfig `toml:"aiModelConfig"`
+	// 对应 [autoModelConfig] 段
+	AutoModelConfig `toml:"autoModelConfig"`
 	// 对应 [chatReplayConfig] 段
 	ChatReplayConfig `toml:"chatReplayConfig"`
 	// 对应 [plannerConfig] 段

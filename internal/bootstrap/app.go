@@ -103,7 +103,7 @@ func New() (*App, error) {
 	// 关闭或未配置时传 nil，Engine 自动按纯向量排序运行。
 	var reranker raginfra.Reranker
 	if conf.RagRerankEnable {
-		reranker = raginfra.NewHTTPReranker(conf.RagRerankBaseUrl, conf.AIModelConfig.APIKey, conf.RagRerankModel)
+		reranker = raginfra.NewHTTPReranker(conf.RagRerankBaseUrl, conf.RagAPIKey, conf.RagRerankModel)
 		logger.Info("rag reranker init success",
 			"model", conf.RagRerankModel,
 			"baseURL", conf.RagRerankBaseUrl)
@@ -111,7 +111,7 @@ func New() (*App, error) {
 	ragEngine, err := raginfra.NewEngine(context.Background(), raginfra.Config{
 		EmbeddingModel: conf.RagEmbeddingModel,
 		BaseURL:        conf.RagBaseUrl,
-		APIKey:         conf.AIModelConfig.APIKey,
+		APIKey:         conf.RagAPIKey,
 		Dimension:      conf.RagDimension,
 		ChunkSize:      conf.RagChunkSize,
 		ChunkOverlap:   conf.RagChunkOverlap,
@@ -147,16 +147,14 @@ func New() (*App, error) {
 		logger.Info("planner init success", "model", conf.PlannerConfig.ModelName)
 	}
 
-	// Phase 3 后工厂只创建 auto / 1 / 4；RAG 的 query 改写与 filter 意图已由 planner 接管，
-	// 旧 EnableQueryRewrite / EnableFilterIntent 不再装配（对应配置项待与 rag.go/mcp.go 一并清理）。
+	// 工厂创建 auto / 4；auto 模型连接配置来自自洽的 [autoModelConfig]，独立于 RAG。
+	// RAG 的 query 改写与 filter 意图已由 planner 接管，旧 EnableQueryRewrite / EnableFilterIntent 不再装配。
 	modelFactory := ai.NewFactory(ai.FactoryConfig{
-		OpenAIModelName: conf.AIModelName,
-		OpenAIBaseURL:   conf.AIBaseURL,
-		ChatModelName:   conf.RagChatModelName,
-		BaseURL:         conf.RagBaseUrl,
-		APIKey:          conf.AIModelConfig.APIKey,
-		MCPBaseURL:      conf.McpConfig.BaseURL,
-		Planner:         planner,
+		AutoModelName: conf.AutoModelName,
+		AutoBaseURL:   conf.AutoBaseURL,
+		AutoAPIKey:    conf.AutoAPIKey,
+		MCPBaseURL:    conf.McpConfig.BaseURL,
+		Planner:       planner,
 	}, ragEngine)
 
 	// —— 消息队列（RabbitMQ）：发布端作为会话消息 Sink，消费端落库 ——

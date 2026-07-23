@@ -79,8 +79,8 @@ func (m *Manager) Get(accountNo, sessionID string) (*Conversation, bool) {
 // 参数说明：
 //   - accountNo：消息归属的内部账号编号，用于会话映射与模型参数；
 //   - sessionID：目标会话标识；
-//   - modelType：创建 Conversation 时使用的模型类型（"1" OpenAI / "2" RAG 等）；
-//   - params：传给 ModelFactory 的附加参数（RAG/MCP 需要 account_no）；
+//   - modelType：创建 Conversation 时使用的模型类型（当前统一为 "auto"）；
+//   - params：传给 ModelFactory 的附加参数（auto 需要 account_no）；
 //   - msgs：待回放的历史消息列表，为空时直接返回。
 func (m *Manager) ReplayMessages(
 	ctx context.Context,

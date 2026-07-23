@@ -65,12 +65,12 @@ go test ./test/... -v
 
 项目根目录提供团队共享的工作区配置：
 
-| 文件 | 作用 |
-| --- | --- |
-| `.vscode/settings.json` | Go（gofmt + gopls + staticcheck）、Vue/ESLint、保存时格式化与 import 整理、文件排除规则 |
-| `.vscode/launch.json` | 一键调试：后端（Go/Delve）、前端（Chrome + dev server）、全栈复合启动、可选 MCP 服务 |
-| `.vscode/tasks.json` | 前端 `npm run serve` 后台任务，以及统一的 `gopherai: release dev ports` 端口清理任务 |
-| `.vscode/extensions.json` | 推荐扩展：Go、Volar、ESLint、Prettier、TOML 等 |
+| 文件                      | 作用                                                                                    |
+| ------------------------- | --------------------------------------------------------------------------------------- |
+| `.vscode/settings.json`   | Go（gofmt + gopls + staticcheck）、Vue/ESLint、保存时格式化与 import 整理、文件排除规则 |
+| `.vscode/launch.json`     | 一键调试：后端（Go/Delve）、前端（Chrome + dev server）、全栈复合启动、可选 MCP 服务    |
+| `.vscode/tasks.json`      | 前端 `npm run serve` 后台任务，以及统一的 `gopherai: release dev ports` 端口清理任务    |
+| `.vscode/extensions.json` | 推荐扩展：Go、Volar、ESLint、Prettier、TOML 等                                          |
 
 首次打开项目时，按提示安装推荐扩展即可。个人偏好（主题、翻译、Copilot 等）请保留在用户级 `settings.json`，不要写入工作区配置。
 
@@ -78,12 +78,12 @@ go test ./test/... -v
 
 在「运行和调试」面板选择配置后按 F5：
 
-| 配置名 | 说明 |
-| --- | --- |
-| `GopherAI: 后端` | 以 Delve 调试 `cmd/server`，工作目录为项目根（读取 `config/config.toml`），`LOG_LEVEL=debug`；启动前/结束调试后自动释放 `9090` |
-| `GopherAI: 前端` | 先启动 `vue-frontend` dev server，再打开 Chrome 调试 `http://localhost:8080`；结束调试后自动释放 `8080` 等前端端口 |
-| `GopherAI: 全栈调试` | 同时启动后端与前端（前端代理 `/api` → `localhost:9090`）；启动前清理残留端口，停止调试后释放 `9090`/`8080` 等 |
-| `GopherAI: MCP 服务` | 独立调试 `cmd/mcp` 天气工具服务（`:8081`）；启动前/结束调试后自动释放 `8081` |
+| 配置名               | 说明                                                                                                                           |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `GopherAI: 后端`     | 以 Delve 调试 `cmd/server`，工作目录为项目根（读取 `config/config.toml`），`LOG_LEVEL=debug`；启动前/结束调试后自动释放 `9090` |
+| `GopherAI: 前端`     | 先启动 `vue-frontend` dev server，再打开 Chrome 调试 `http://localhost:8080`；结束调试后自动释放 `8080` 等前端端口             |
+| `GopherAI: 全栈调试` | 同时启动后端与前端（前端代理 `/api` → `localhost:9090`）；启动前清理残留端口，停止调试后释放 `9090`/`8080` 等                  |
+| `GopherAI: MCP 服务` | 独立调试 `cmd/mcp` 天气工具服务（`:8081`）；启动前/结束调试后自动释放 `8081`                                                   |
 
 前置条件：已安装 [Go 扩展](https://marketplace.visualstudio.com/items?itemName=golang.go) 与 Delve；前端调试需本机 Chrome。`vue-frontend` 依赖通过 `npm install` 安装。端口清理由 `.vscode/tasks.json` 调用 `.vscode/kill-ports.cmd` 完成（需 Windows，管理员权限非必须）。
 
@@ -91,38 +91,47 @@ go test ./test/... -v
 
 后端启动时读取 `config/config.toml`。关键配置如下：
 
-| 配置段 | 作用 |
-| --- | --- |
-| `[mainConfig]` | 后端监听地址与端口，默认 `0.0.0.0:9090` |
-| `[mysqlConfig]` | MySQL 地址、账号、密码、数据库名和字符集 |
-| `[redisConfig]` | Redis 地址、密码、DB，以及启动阶段 Ping 超时（`pingTimeoutMs`，<=0 默认 3000） |
-| `[rabbitmqConfig]` | RabbitMQ 地址、账号、密码、vhost，以及会话消息持久化队列名（`queue`，为空默认 `"Message"`） |
-| `[emailConfig]` | 注册验证码邮件配置 |
-| `[jwtConfig]` | JWT 过期时间、签发信息和密钥 |
-| `[ragModelConfig]` | RAG 使用的模型名、文档目录、OpenAI 兼容 Base URL、向量维度，以及检索增强参数（分块大小/重叠、TopK、距离阈值、是否启用多轮 query 改写、是否启用精排 reranker 及其召回放大/截断/最低分阈值、语义切分/上下文增强/块头标签三项分块索引升级开关） |
-| `[voiceServiceConfig]` | 百度 TTS API Key 和 Secret Key |
-| `[aiModelConfig]` | 普通 OpenAI 兼容模型名、Base URL 与通用 AI API Key 配置 |
-| `[chatReplayConfig]` | 会话历史回放：启动预热最近 N 个活跃会话、默认模型类型 |
-| `[plannerConfig]` | planner 检索决策器：是否启用、轻量模型名/BaseURL/APIKey、回溯窗口与超时 |
-| `[mcpConfig]` | MCP 工具服务 Streamable HTTP 端点（`baseUrl`）；auto 模型懒连接拉取工具集，为空时退化为无工具纯生成 |
-| `[imageServiceConfig]` | ONNX 图像识别模型与标签文件路径（`modelPath` / `labelPath`），随部署环境变化 |
+| 配置段                 | 作用                                                                                                                                                                                                                                                           |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `[mainConfig]`         | 后端监听地址与端口，默认 `0.0.0.0:9090`                                                                                                                                                                                                                        |
+| `[mysqlConfig]`        | MySQL 地址、账号、密码、数据库名和字符集                                                                                                                                                                                                                       |
+| `[redisConfig]`        | Redis 地址、密码、DB，以及启动阶段 Ping 超时（`pingTimeoutMs`，<=0 默认 3000）                                                                                                                                                                                 |
+| `[rabbitmqConfig]`     | RabbitMQ 地址、账号、密码、vhost，以及会话消息持久化队列名（`queue`，为空默认 `"Message"`）                                                                                                                                                                    |
+| `[emailConfig]`        | 注册验证码邮件配置                                                                                                                                                                                                                                             |
+| `[jwtConfig]`          | JWT 过期时间、签发信息和密钥                                                                                                                                                                                                                                   |
+| `[ragModelConfig]`     | RAG 使用的嵌入模型名、独立 API Key、文档目录、OpenAI 兼容 Base URL、向量维度，以及检索增强参数（分块大小/重叠、TopK、距离阈值、是否启用多轮 query 改写、是否启用精排 reranker 及其召回放大/截断/最低分阈值、语义切分/上下文增强/块头标签三项分块索引升级开关） |
+| `[voiceServiceConfig]` | 百度 TTS API Key 和 Secret Key                                                                                                                                                                                                                                 |
+| `[autoModelConfig]`    | auto 主力模型的对话模型名、Base URL 与 API Key（需支持 tool calling）；完全自洽，独立于 RAG                                                                                                                                                                    |
+| `[chatReplayConfig]`   | 会话历史回放：启动预热最近 N 个活跃会话、默认模型类型                                                                                                                                                                                                          |
+| `[plannerConfig]`      | planner 检索决策器：是否启用、轻量模型名/BaseURL/APIKey、回溯窗口与超时                                                                                                                                                                                        |
+| `[mcpConfig]`          | MCP 工具服务 Streamable HTTP 端点（`baseUrl`）；auto 模型懒连接拉取工具集，为空时退化为无工具纯生成                                                                                                                                                            |
+| `[imageServiceConfig]` | ONNX 图像识别模型与标签文件路径（`modelPath` / `labelPath`），随部署环境变化                                                                                                                                                                                   |
 
 `[chatReplayConfig]` 示例：
 
 ```toml
 [chatReplayConfig]
-sessionLimit = 50          # 启动时预热的最近活跃会话数（全局）
-defaultModelType = "1"     # 启动预热与查询历史时的默认模型类型
+sessionLimit = 50            # 启动时预热的最近活跃会话数（全局）
+defaultModelType = "auto"    # 启动预热与查询历史时的默认模型类型
 ```
 
-`sessionLimit` 或 `defaultModelType` 未配置时，默认分别为 `50` 和 `"1"`。
+`sessionLimit` 或 `defaultModelType` 未配置时，默认分别为 `50` 和 `"auto"`。
+
+`[autoModelConfig]` 示例（auto 主力模型，独立于 RAG）：
+
+```toml
+[autoModelConfig]
+modelName = "qwen-plus"      # 需支持 tool calling
+baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+apiKey = "your-api-key"
+```
 
 `[ragModelConfig]` 检索增强相关参数示例：
 
 ```toml
 [ragModelConfig]
 embeddingModel = "text-embedding-v4"   # 向量嵌入模型
-chatModelName = "qwen-turbo"            # RAG 对话模型
+apiKey = "your-api-key"                 # RAG 独立鉴权凭证（嵌入 + 重排共用）
 baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 dimension = 1024                        # 向量维度，需与嵌入模型匹配
 chunkSize = 512                         # 单个文本块最大字符数（<=0 默认 512；递归切分按自然边界切，单块长度可能略有出入）
@@ -144,17 +153,18 @@ enableHeaderInjection = false          # 是否在块正文首部注入「来源
 ```
 
 > **文档分块与索引升级（灰度 / newdocs_only）**：`enableSemanticChunking`、`contextWindow`、`enableHeaderInjection` 三项均**默认关闭、保持现有行为**，开启后仅对**新上传文档**生效、**不迁移存量索引**（存量按旧 schema 优雅降级）。
+>
 > - **语义切分**（`enableSemanticChunking`）：非 Markdown 文件按句向量余弦距离的 `semanticBreakpointPercentile` 分位数定位语义边界断块，过短块合并、超长块二次硬切；任一步失败自动回退递归切分→定长滑窗，索引不中断。Markdown 仍走标题感知切分以保留章节结构。
 > - **上下文增强**（`contextWindow`）：检索打分仍用小块保精度，命中后按确定性 key `rag_docs:{accountNo}:{storedName}:chunk_N` 取回前后各 N 个邻居块，按 chunk 序拼接、跨命中去重合并相邻 span；索引期额外写 `chunk`/`stored` HASH 字段用于定位，存量旧块无此字段时自动跳过扩展。
 > - **块头标签**（`enableHeaderInjection`）：把「来源：foo.md｜章节：H1 > H2」前缀拼到块正文首部（同时进入向量与提示词），并写入 `headers` 元数据；引用展示行扩展为 `[文档 N｜来源：foo.md｜章节：H1 > H2]`。
 
-启用精排后检索变为“**粗排（向量召回放大到 `recallTopK`）→ 精排（reranker 重排打分）→ 截断到 `rerankTopK` →（可选）按 `rerankMinScore` 兜底过滤**”两阶段流程；精排服务调用失败时自动降级为向量排序，RAG 链路不中断。`rerankEnable = false`（默认）时回到纯向量排序的现有行为。注意：`maxDistance` 是向量 **距离**（越小越相关）粗筛阈值，`rerankMinScore` 是精排 **相关分**（越大越相关）阈值，两者语义相反、不可混用。复用 `[aiModelConfig].apiKey` 作为重排服务鉴权 Key。
+启用精排后检索变为“**粗排（向量召回放大到 `recallTopK`）→ 精排（reranker 重排打分）→ 截断到 `rerankTopK` →（可选）按 `rerankMinScore` 兜底过滤**”两阶段流程；精排服务调用失败时自动降级为向量排序，RAG 链路不中断。`rerankEnable = false`（默认）时回到纯向量排序的现有行为。注意：`maxDistance` 是向量 **距离**（越小越相关）粗筛阈值，`rerankMinScore` 是精排 **相关分**（越大越相关）阈值，两者语义相反、不可混用。复用 `[ragModelConfig].apiKey` 作为重排服务鉴权 Key。
 
-`[aiModelConfig]` 统一配置普通 OpenAI 兼容对话模型，并为 RAG 嵌入 / 对话模型和 MCP 对话模型提供 API Key：
+`[autoModelConfig]` 配置 auto 主力模型的对话模型（planner + 检索增强 + ReAct 工具），`[ragModelConfig].apiKey` 为 RAG 嵌入与重排提供独立鉴权；两段互不依赖，允许 auto 与 RAG 使用不同 provider：
 
 ```toml
-[aiModelConfig]
-modelName = "qwen-turbo"
+[autoModelConfig]
+modelName = "qwen-plus"
 baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 apiKey = "your-api-key"
 ```
@@ -198,11 +208,11 @@ docker compose up -d
 
 默认容器连接信息：
 
-| 服务 | 地址 | 账号 | 密码 | 说明 |
-| --- | --- | --- | --- | --- |
-| MySQL | `127.0.0.1:3306` | `hegang` | `hg200512hg` | 默认库名 `GopherAI` |
-| Redis Stack | `127.0.0.1:6379` | - | - | 支持 RAG 依赖的 RediSearch |
-| RabbitMQ | `127.0.0.1:5672` | `root` | `123456` | 管理后台 `http://127.0.0.1:15672` |
+| 服务        | 地址             | 账号     | 密码         | 说明                              |
+| ----------- | ---------------- | -------- | ------------ | --------------------------------- |
+| MySQL       | `127.0.0.1:3306` | `hegang` | `hg200512hg` | 默认库名 `GopherAI`               |
+| Redis Stack | `127.0.0.1:6379` | -        | -            | 支持 RAG 依赖的 RediSearch        |
+| RabbitMQ    | `127.0.0.1:5672` | `root`   | `123456`     | 管理后台 `http://127.0.0.1:15672` |
 
 常用命令：
 
@@ -345,13 +355,13 @@ npm run lint
 生产环境默认不输出；如需临时开启，可在浏览器控制台执行：
 
 ```js
-localStorage.setItem("gopherai:frontend-debug", "1")
+localStorage.setItem("gopherai:frontend-debug", "1");
 ```
 
 关闭诊断日志：
 
 ```js
-localStorage.removeItem("gopherai:frontend-debug")
+localStorage.removeItem("gopherai:frontend-debug");
 ```
 
 ## 设计与接口文档

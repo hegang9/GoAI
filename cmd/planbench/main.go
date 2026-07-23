@@ -204,33 +204,26 @@ func joinKeywords(kw []string) string {
 	return out
 }
 
-// mockDocDir 在临时目录建 uploads/{accountNo}/placeholder 并切换工作目录，
-// 使 storage.HasUserDocs(accountNo) 返回 true。返回 cleanup 还原工作目录。
+// mockDocDir 在当前工作目录的 uploads/{accountNo}/ 下建 placeholder，
+// 使 storage.HasUserDocs(accountNo) 返回 true，让 planner 跳过「无文档」规则短路进入 LLM 路径。
+//
+// 安全约束：若 uploads/{accountNo}/ 已存在且非空，报错退出，避免清理时误删真实用户文档。
+// 返回 cleanup 删除评测期间创建的目录（评测前已确认其为空或不存在）。
+//
+// 隐含约束：须从项目根目录执行 planbench，因为 HasUserDocs 用相对路径 uploads/{accountNo}。
 func mockDocDir(accountNo string) (cleanup func(), err error) {
-	tmp, err := os.MkdirTemp("", "planbench-*")
-	if err != nil {
-		return nil, err
+	docDir := filepath.Join("uploads", accountNo)
+	// 防误删：目录已存在且非空时拒绝继续，避免清理真实用户文档。
+	if entries, derr := os.ReadDir(docDir); derr == nil && len(entries) > 0 {
+		return nil, fmt.Errorf("uploads/%s already exists and non-empty, use a clean accountNo", accountNo)
 	}
-	docDir := filepath.Join(tmp, "uploads", accountNo)
 	if err := os.MkdirAll(docDir, 0o755); err != nil {
-		os.RemoveAll(tmp)
 		return nil, err
 	}
 	if err := os.WriteFile(filepath.Join(docDir, "placeholder"), []byte("bench"), 0o644); err != nil {
-		os.RemoveAll(tmp)
-		return nil, err
-	}
-	orig, err := os.Getwd()
-	if err != nil {
-		os.RemoveAll(tmp)
-		return nil, err
-	}
-	if err := os.Chdir(tmp); err != nil {
-		os.RemoveAll(tmp)
 		return nil, err
 	}
 	return func() {
-		_ = os.Chdir(orig)
-		_ = os.RemoveAll(tmp)
+		_ = os.RemoveAll(docDir)
 	}, nil
 }

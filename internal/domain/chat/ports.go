@@ -8,13 +8,13 @@ type StreamCallback func(chunk string)
 // Model 是统一的 AI 模型领域端口。
 //
 // 它只使用领域类型（[]Message、string），不暴露任何底层 SDK（如 eino schema）的细节；
-// 具体的 OpenAI / Ollama / RAG / MCP 适配器在 infrastructure/ai 中实现该接口。
+// 具体的 auto / Ollama 等适配器在 infrastructure/ai 中实现该接口。
 type Model interface {
 	// Generate 基于会话历史生成完整回复内容。
 	Generate(ctx context.Context, history []Message) (string, error)
 	// Stream 基于会话历史流式生成回复，分片通过 cb 回调输出，返回聚合后的完整内容。
 	Stream(ctx context.Context, history []Message, cb StreamCallback) (string, error)
-	// Type 返回模型类型标识（"1" OpenAI / "2" RAG / "3" MCP / "4" Ollama）。
+	// Type 返回模型类型标识（"auto" 自动编排 / "4" Ollama；旧 "1"/"2"/"3" 已退役）。
 	Type() string
 }
 

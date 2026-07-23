@@ -83,7 +83,7 @@ RAG 相关配置位于 `config/config.toml` 的 `[ragModelConfig]`：
 ```toml
 [ragModelConfig]
 embeddingModel = "text-embedding-v4"
-chatModelName = "qwen-turbo"
+apiKey = "your-api-key"
 docDir = "./docs"
 baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 dimension = 1024
@@ -97,8 +97,8 @@ enableQueryRewrite = false
 配置含义：
 
 - `embeddingModel`：用于生成文档向量和 query 向量的 embedding 模型。
-- `chatModelName`：RAG 最终回答使用的聊天模型。
-- `baseUrl`：embedding 和聊天模型的 OpenAI 兼容接口地址。
+- `apiKey`：RAG 独立鉴权凭证（嵌入 + 重排服务共用），独立于 auto 模型的 `[autoModelConfig].apiKey`。
+- `baseUrl`：embedding 接口的 OpenAI 兼容地址。
 - `dimension`：向量维度，必须与 embedding 模型输出维度一致。
 - `chunkSize`：单个文本块最大字符数，按 rune 计算；非法值运行时回退到 512。
 - `chunkOverlap`：相邻文本块重叠字符数；非法值运行时回退到 64，且会被限制为小于 `chunkSize`。
@@ -106,7 +106,7 @@ enableQueryRewrite = false
 - `maxDistance`：COSINE 距离阈值，距离越小越相关；大于阈值的结果会被丢弃，非法值运行时回退到 0.6。
 - `enableQueryRewrite`：是否在多轮对话中用 LLM 改写检索 query。
 
-API Key 统一取配置中的 `AIModelConfig.APIKey`，不再从系统环境变量兜底读取。
+API Key 取配置中的 `RagModelConfig.RagAPIKey`（RAG 独立），不再从系统环境变量兜底读取。
 
 ## Redis 数据模型
 
@@ -365,4 +365,3 @@ MODULE LIST
 - `maxDistance` 是全局阈值，不同 embedding 模型、文档类型和语言分布可能需要不同调参。
 - `enableQueryRewrite` 会额外调用一次聊天模型，能改善多轮追问检索质量，但会增加延迟和成本。
 - PDF 解析对扫描件无 OCR 能力，扫描型 PDF 可能解析为空文本并导致索引失败。
-

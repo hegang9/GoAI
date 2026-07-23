@@ -102,12 +102,12 @@ func main() {
 	// 构造 Engine；按配置决定是否注入 reranker（对齐 bootstrap 装配）。
 	var reranker raginfra.Reranker
 	if conf.RagRerankEnable {
-		reranker = raginfra.NewHTTPReranker(conf.RagRerankBaseUrl, conf.AIModelConfig.APIKey, conf.RagRerankModel)
+		reranker = raginfra.NewHTTPReranker(conf.RagRerankBaseUrl, conf.RagAPIKey, conf.RagRerankModel)
 	}
 	engine, err := raginfra.NewEngine(ctx, raginfra.Config{
 		EmbeddingModel:         conf.RagEmbeddingModel,
 		BaseURL:                conf.RagBaseUrl,
-		APIKey:                 conf.AIModelConfig.APIKey,
+		APIKey:                 conf.RagAPIKey,
 		Dimension:              conf.RagDimension,
 		ChunkSize:              conf.RagChunkSize,
 		ChunkOverlap:           conf.RagChunkOverlap,

@@ -2,12 +2,12 @@
 
 ## 模块职责
 
-- 本目录实现各类对话模型适配器与模型工厂，统一承接 OpenAI、auto、Ollama 等模型类型。
+- 本目录实现各类对话模型适配器与模型工厂，统一承接 auto、Ollama 等模型类型。
 - `auto` 是统一自动编排模型：planner 检索决策 + RetrievalModifier 一次性检索增强 + ReAct Agent（默认 MCP 工具集，模型自主 native function calling）。
 
 ## 变更约束
 
-- 模型类型约定（Phase 3 后）：`auto` 自动编排、`1` OpenAI、`4` Ollama；旧 `2` RAG / `3` MCP 已退役，由 `auto` 统一承载。任何类型变动都要同步审视历史会话与上层路由。
+- 模型类型约定：`auto` 自动编排（主力，读 `[autoModelConfig]`）、`4` Ollama；旧 `1` OpenAI（`openai.go` 保留但工厂已无 `case "1"` 触发入口）/ `2` RAG / `3` MCP 已退役，由 `auto` 统一承载。任何类型变动都要同步审视历史会话与上层路由。
 - `Factory` 只负责按类型创建模型，不要把会话编排、HTTP DTO 或控制器逻辑拉进来。
 - `auto` 依赖 `account_no`（检索与工具集都按账号隔离）；新增模型若也需要上下文参数，应沿用显式 `params` 传递，而不是读全局状态。
 - 检索是 pre-generation 上下文准备，必须在进入 ReAct 前由 `RetrievalModifier` 一次性完成；不要把检索塞进 ReAct 的 `MessageModifier`——后者每轮模型调用前都会触发，且循环中途最后一条是工具结果，重复检索既昂贵又会改错位置。`MessageModifier` 只承载幂等的系统提示注入。
