@@ -13,16 +13,22 @@
 // 日志级别从低到高：Debug < Info < Warn < Error。
 // 级别由 defaultLogLevel 常量控制（当前为 debug），修改后需重新编译。
 //
-// 输出目标：stdout 与 logs/ 目录下按日期命名的日志文件（双写）。
+// 输出目标：
+//   - 控制台（stdout）：debug 模式为带 ANSI 颜色的易读文本；release 为 JSON
+//   - logs/ 目录按日期命名的日志文件：与控制台同内容但无颜色（文件为纯文本/JSON）
+//
 // 单文件超过 maxLogFileSizeMB 后自动轮转，保留 30 天。
+// source 字段指向业务调用方（通过 runtime.Callers 跳过本包包装层）。
 package logger
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -55,8 +61,8 @@ func newFileWriter(dir string, maxSizeMB int) (io.Writer, error) {
 //
 // 输出：stdout 与 logs/%Y-%m-%d.log 双写（文件打开失败时仅写 stdout）。
 // 格式由 gin.Mode() 决定：
-//   - debug：TextHandler，人类可读文本
-//   - release / test：JSONHandler，结构化 JSON
+//   - debug：彩色 Text（控制台）+ 无色 Text（文件）
+//   - release / test：JSON（控制台与文件）
 //
 // 日志级别由 defaultLogLevel 常量决定，可选 debug、info、warn、error。
 func InitLogger() {
@@ -80,52 +86,68 @@ func InitLogger() {
 		fmt.Fprintf(os.Stderr, "file logger disabled: %v\n", err)
 	}
 
-	var std_out io.Writer = os.Stdout
-	if fileWriter != nil {
-		std_out = io.MultiWriter(std_out, fileWriter)
-	}
-
-	// AddSource 让每条日志自动附带源文件名和行号，便于定位代码。
 	opts := &slog.HandlerOptions{
-		AddSource: true,
-		Level:     level,
+		AddSource:   true,
+		Level:       level,
+		ReplaceAttr: shortSourceAttr,
 	}
 
-	var handler slog.Handler
-	// debug 模式用易读文本；release / test 模式用结构化 JSON。
-	if gin.Mode() == "debug" {
-		handler = slog.NewTextHandler(std_out, opts)
+	handlers := make([]slog.Handler, 0, 2)
+	if gin.Mode() == gin.DebugMode {
+		// 控制台：彩色易读；文件：同格式无颜色，避免把 ANSI 码写入日志文件。
+		handlers = append(handlers, newPrettyHandler(os.Stdout, opts, true))
+		if fileWriter != nil {
+			// 文件必须 color=false：编辑器不会解释 ANSI，只会显示成乱码。
+			handlers = append(handlers, newPrettyHandler(fileWriter, opts, false))
+		}
 	} else {
-		handler = slog.NewJSONHandler(std_out, opts)
+		handlers = append(handlers, slog.NewJSONHandler(os.Stdout, opts))
+		if fileWriter != nil {
+			handlers = append(handlers, slog.NewJSONHandler(fileWriter, opts))
+		}
 	}
 
-	slog.SetDefault(slog.New(handler))
+	slog.SetDefault(slog.New(multiHandler(handlers)))
+}
+
+// log 通过 runtime.Callers 跳过本包包装层，让 AddSource 指向真实业务调用方。
+// skip=3：Callers 自身 + log + Info/Warn/Error/Debug。
+func log(level slog.Level, msg string, args ...any) {
+	logger := slog.Default()
+	if !logger.Enabled(context.Background(), level) {
+		return
+	}
+	var pcs [1]uintptr
+	runtime.Callers(3, pcs[:])
+	r := slog.NewRecord(time.Now(), level, msg, pcs[0])
+	r.Add(args...)
+	_ = logger.Handler().Handle(context.Background(), r)
 }
 
 // Info 输出 Info 级别日志。args 为 key-value 对，如 "key", val, "key2", val2。
 func Info(msg string, args ...any) {
-	slog.Info(msg, args...)
+	log(slog.LevelInfo, msg, args...)
 }
 
 // Error 输出 Error 级别日志。
 func Error(msg string, args ...any) {
-	slog.Error(msg, args...)
+	log(slog.LevelError, msg, args...)
 }
 
 // Warn 输出 Warn 级别日志，用于可恢复的异常情况。
 func Warn(msg string, args ...any) {
-	slog.Warn(msg, args...)
+	log(slog.LevelWarn, msg, args...)
 }
 
 // Debug 输出 Debug 级别日志，仅在 defaultLogLevel 为 debug 时可见。
 func Debug(msg string, args ...any) {
-	slog.Debug(msg, args...)
+	log(slog.LevelDebug, msg, args...)
 }
 
 // Fatal 输出 Error 级别日志后调用 os.Exit(1) 终止程序。
 // 仅在初始化阶段不可恢复的错误时使用。
 func Fatal(msg string, args ...any) {
-	slog.Error(msg, args...)
+	log(slog.LevelError, msg, args...)
 	fmt.Fprintf(os.Stderr, "FATAL: %s\n", msg)
 	os.Exit(1)
 }

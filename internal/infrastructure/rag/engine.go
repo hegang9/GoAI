@@ -3,8 +3,10 @@ package rag
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	domainrag "GopherAI/internal/domain/rag"
 	redisstore "GopherAI/internal/infrastructure/cache/redis"
@@ -162,11 +164,14 @@ func newEmbedder(ctx context.Context, cfg Config) (embedding.Embedder, error) {
 	// SiliconFlow 兼容 OpenAI Embeddings，并支持通过 dimensions 指定输出维度。
 	if strings.Contains(strings.ToLower(cfg.BaseURL), "siliconflow.cn") {
 		dimensions := cfg.Dimension
+		// 必须显式传入 HTTPClient：eino-ext 把 nil *http.Client 赋给 go-openai 的
+		// HTTPDoer 接口会形成「带类型的 nil」，其 nil 判断失效，随后 Do() 直接 panic。
 		emb, err := embeddingOpenAI.NewEmbeddingClient(ctx, &embeddingOpenAI.EmbeddingConfig{
 			BaseURL:    cfg.BaseURL,
 			APIKey:     cfg.APIKey,
 			Model:      cfg.EmbeddingModel,
 			Dimensions: &dimensions,
+			HTTPClient: http.DefaultClient,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create SiliconFlow embedder: %w", err)
@@ -190,13 +195,31 @@ func newEmbedder(ctx context.Context, cfg Config) (embedding.Embedder, error) {
 // 同一账号共用一个索引；文档被切块后，每个块以 storedName:chunk_N 作为相对 key，
 // 加上账号级前缀后形成最终向量 key，便于按文档粒度删除。
 func (e *Engine) Index(ctx context.Context, accountNo, storedName, localPath string) error {
+	start := time.Now()
+	keyPrefix := e.vs.AccountPrefix(accountNo)
+
+	initStart := time.Now()
 	if err := e.vs.InitIndex(ctx, accountNo, e.cfg.Dimension); err != nil {
+		logger.Error("Index InitIndex failed",
+			"accountNo", accountNo, "storedName", storedName,
+			"dimension", e.cfg.Dimension, "err", err, "duration", time.Since(initStart))
 		return fmt.Errorf("failed to init redis index: %w", err)
 	}
+	logger.Info("Index InitIndex done",
+		"accountNo", accountNo,
+		"storedName", storedName,
+		"index", e.vs.IndexName(accountNo),
+		"keyPrefix", keyPrefix,
+		"dimension", e.cfg.Dimension,
+		"duration", time.Since(initStart),
+	)
+
 	logger.Info("Index load documents start",
 		"accountNo", accountNo,
 		"storedName", storedName,
 		"localPath", localPath,
+		"embeddingModel", e.cfg.EmbeddingModel,
+		"baseURL", e.cfg.BaseURL,
 		"enableSemanticChunking", e.cfg.EnableSemanticChunking,
 		"semanticPercentile", e.cfg.SemanticPercentile,
 		"semanticBufferSize", e.cfg.SemanticBufferSize,
@@ -205,7 +228,7 @@ func (e *Engine) Index(ctx context.Context, accountNo, storedName, localPath str
 
 	indexerConfig := &redisIndexer.IndexerConfig{
 		Client:    e.vs.Client(),
-		KeyPrefix: e.vs.AccountPrefix(accountNo),
+		KeyPrefix: keyPrefix,
 		BatchSize: 10,
 		// 定义如何把Eino的Document转换为Redis的Hash。
 		DocumentToHashes: func(ctx context.Context, doc *schema.Document) (*redisIndexer.Hashes, error) {
@@ -238,10 +261,13 @@ func (e *Engine) Index(ctx context.Context, accountNo, storedName, localPath str
 
 	idx, err := redisIndexer.NewIndexer(ctx, indexerConfig)
 	if err != nil {
+		logger.Error("Index NewIndexer failed",
+			"accountNo", accountNo, "storedName", storedName, "err", err)
 		return fmt.Errorf("failed to create indexer: %w", err)
 	}
 
 	// 按引擎配置透传分块升级开关（语义切分 / 块头标签）；Embedder 复用引擎内缓存实例。
+	loadStart := time.Now()
 	docs, err := loadDocuments(ctx, localPath, loadOptions{
 		ChunkSize:              e.cfg.ChunkSize,
 		Overlap:                e.cfg.ChunkOverlap,
@@ -252,13 +278,70 @@ func (e *Engine) Index(ctx context.Context, accountNo, storedName, localPath str
 		EnableHeaderInjection:  e.cfg.EnableHeaderInjection,
 	})
 	if err != nil {
+		logger.Error("Index loadDocuments failed",
+			"accountNo", accountNo, "storedName", storedName, "path", localPath,
+			"err", err, "duration", time.Since(loadStart))
 		return err
 	}
-	if _, err := idx.Store(ctx, docs); err != nil {
+	logger.Info("Index loadDocuments done",
+		"accountNo", accountNo,
+		"storedName", storedName,
+		"chunks", len(docs),
+		"avgContentLen", avgDocContentLen(docs),
+		"duration", time.Since(loadStart),
+	)
+
+	// Store 会调用 embedding API 并将向量写入 Redis；这是上传链路最慢且最易失败的阶段。
+	storeStart := time.Now()
+	logger.Info("Index store start",
+		"accountNo", accountNo,
+		"storedName", storedName,
+		"chunks", len(docs),
+		"batchSize", 10,
+		"keyPrefix", keyPrefix,
+		"embeddingModel", e.cfg.EmbeddingModel,
+	)
+	ids, err := idx.Store(ctx, docs)
+	if err != nil {
+		logger.Error("Index store failed",
+			"accountNo", accountNo,
+			"storedName", storedName,
+			"chunks", len(docs),
+			"err", err,
+			"duration", time.Since(storeStart),
+			"ctxErr", indexCtxErr(ctx),
+		)
 		return fmt.Errorf("failed to store document: %w", err)
 	}
-	logger.Info("Index stored", "accountNo", accountNo, "storedName", storedName, "chunks", len(docs))
+	logger.Info("Index store done",
+		"accountNo", accountNo,
+		"storedName", storedName,
+		"chunks", len(docs),
+		"storedIDs", len(ids),
+		"storeDuration", time.Since(storeStart),
+		"totalDuration", time.Since(start),
+	)
 	return nil
+}
+
+func avgDocContentLen(docs []*schema.Document) int {
+	if len(docs) == 0 {
+		return 0
+	}
+	total := 0
+	for _, d := range docs {
+		if d != nil {
+			total += len(d.Content)
+		}
+	}
+	return total / len(docs)
+}
+
+func indexCtxErr(ctx context.Context) string {
+	if ctx == nil || ctx.Err() == nil {
+		return ""
+	}
+	return ctx.Err().Error()
 }
 
 // Delete 删除指定账号下某个文档对应的向量数据（实现 domain/rag.Indexer）。

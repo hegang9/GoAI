@@ -14,7 +14,7 @@ func (h *Handlers) UploadRagFile(c *gin.Context) {
 	// 读取上传文件元数据。
 	uploaded, err := c.FormFile("file")
 	if err != nil {
-		logger.Error("FormFile", "err", err)
+		logger.Error("UploadRagFile FormFile failed", "err", err, "clientIP", c.ClientIP())
 		httpx.JSON(c, nil, code.CodeInvalidParams)
 		return
 	}
@@ -22,22 +22,47 @@ func (h *Handlers) UploadRagFile(c *gin.Context) {
 	// accountNo 来自 JWT 中间件。
 	accountNo := c.GetString("accountNo")
 	if accountNo == "" {
-		logger.Error("AccountNo not found in context")
+		logger.Error("UploadRagFile accountNo missing in context", "filename", uploaded.Filename)
 		httpx.JSON(c, nil, code.CodeInvalidToken)
 		return
 	}
 
+	logger.Info("UploadRagFile request",
+		"accountNo", accountNo,
+		"filename", uploaded.Filename,
+		"size", uploaded.Size,
+		"contentType", uploaded.Header.Get("Content-Type"),
+		"clientIP", c.ClientIP(),
+	)
+
 	// 打开文件内容交给应用层处理。
 	src, err := uploaded.Open()
 	if err != nil {
-		logger.Error("open uploaded file failed", "err", err)
+		logger.Error("UploadRagFile open failed",
+			"accountNo", accountNo, "filename", uploaded.Filename, "err", err)
 		httpx.JSON(c, nil, code.CodeServerBusy)
 		return
 	}
 	defer src.Close()
 
 	filePath, errCode := h.File.UploadRagFile(c.Request.Context(), accountNo, uploaded.Filename, src)
+	logger.Info("UploadRagFile response",
+		"accountNo", accountNo,
+		"filename", uploaded.Filename,
+		"code", int64(errCode),
+		"msg", errCode.Msg(),
+		"filePath", filePath,
+		"ctxErr", ctxErrString(c.Request.Context()),
+	)
 	httpx.JSON(c, &dto.UploadFileResponse{FilePath: filePath}, errCode)
+}
+
+// ctxErrString 把请求上下文取消/超时原因打成可观测字段，便于区分客户端断连与服务端错误。
+func ctxErrString(ctx interface{ Err() error }) string {
+	if ctx == nil || ctx.Err() == nil {
+		return ""
+	}
+	return ctx.Err().Error()
 }
 
 // ListRagFiles 返回当前登录账号已上传的知识库文档文件名列表。

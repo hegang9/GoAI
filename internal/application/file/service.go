@@ -8,6 +8,7 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+	"time"
 
 	domainrag "GopherAI/internal/domain/rag"
 	domainstorage "GopherAI/internal/domain/storage"
@@ -36,34 +37,82 @@ func NewService(storage domainstorage.DocStorage, indexer domainrag.Indexer) *Se
 // 多文档知识库语义：本方法为“追加”，不再清理账号下已有文档与索引；
 // originalName 为上传文件原始名（用于校验扩展名与取后缀），content 为文件内容。
 func (s *Service) UploadRagFile(ctx context.Context, accountNo, originalName string, content io.Reader) (string, code.Code) {
+	start := time.Now()
+
 	// 校验文件类型。
 	if err := fileutil.ValidateDocExt(originalName); err != nil {
-		logger.Warn("UploadRagFile validation failed", "err", err)
+		logger.Warn("UploadRagFile validation failed",
+			"accountNo", accountNo, "originalName", originalName, "err", err)
 		return "", code.CodeInvalidParams
 	}
 
 	// 以 uuid + 原始后缀生成隔离文件名并保存（追加，不清理旧文档）。
 	storedName := id.GenerateUUID() + filepath.Ext(originalName)
+	logger.Info("UploadRagFile start",
+		"accountNo", accountNo,
+		"originalName", originalName,
+		"storedName", storedName,
+	)
+
+	saveStart := time.Now()
 	localPath, err := s.storage.Save(accountNo, storedName, content)
 	if err != nil {
-		logger.Error("UploadRagFile save failed", "accountNo", accountNo, "err", err)
+		logger.Error("UploadRagFile save failed",
+			"accountNo", accountNo,
+			"originalName", originalName,
+			"storedName", storedName,
+			"err", err,
+			"duration", time.Since(saveStart),
+		)
 		return "", code.CodeServerBusy
 	}
-	logger.Info("UploadRagFile saved", "path", localPath)
+	logger.Info("UploadRagFile saved",
+		"accountNo", accountNo,
+		"storedName", storedName,
+		"path", localPath,
+		"duration", time.Since(saveStart),
+	)
 
 	// 为该文档建立向量索引；失败时回滚文件与该文档向量。
+	indexStart := time.Now()
 	if err := s.indexer.Index(ctx, accountNo, storedName, localPath); err != nil {
-		logger.Error("UploadRagFile index failed", "err", err)
+		logger.Error("UploadRagFile index failed",
+			"accountNo", accountNo,
+			"storedName", storedName,
+			"path", localPath,
+			"err", err,
+			"indexDuration", time.Since(indexStart),
+			"ctxErr", ctxErrString(ctx),
+		)
 		if removeErr := s.storage.Remove(localPath); removeErr != nil {
-			logger.Error("UploadRagFile rollback remove failed", "err", removeErr)
+			logger.Error("UploadRagFile rollback remove failed",
+				"accountNo", accountNo, "path", localPath, "err", removeErr)
+		} else {
+			logger.Warn("UploadRagFile rolled back file after index failure",
+				"accountNo", accountNo, "path", localPath)
 		}
 		if delErr := s.indexer.Delete(ctx, accountNo, storedName); delErr != nil {
-			logger.Error("UploadRagFile rollback delete index failed", "err", delErr)
+			logger.Error("UploadRagFile rollback delete index failed",
+				"accountNo", accountNo, "storedName", storedName, "err", delErr)
 		}
 		return "", code.CodeServerBusy
 	}
-	logger.Info("UploadRagFile indexed", "accountNo", accountNo, "filename", storedName)
+	logger.Info("UploadRagFile complete",
+		"accountNo", accountNo,
+		"originalName", originalName,
+		"storedName", storedName,
+		"path", localPath,
+		"indexDuration", time.Since(indexStart),
+		"totalDuration", time.Since(start),
+	)
 	return localPath, code.CodeSuccess
+}
+
+func ctxErrString(ctx context.Context) string {
+	if ctx == nil || ctx.Err() == nil {
+		return ""
+	}
+	return ctx.Err().Error()
 }
 
 // ListRagFiles 列出指定账号当前已上传的全部 RAG 文档存储文件名。

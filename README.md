@@ -78,12 +78,12 @@ go test ./test/... -v
 
 在「运行和调试」面板选择配置后按 F5：
 
-| 配置名               | 说明                                                                                                                                                                        |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GopherAI: 后端`     | 以 Delve 调试 `cmd/server`，工作目录为项目根（读取 `config/config.toml`）；Gin 默认 debug 模式（TextHandler），日志双写 stdout 与 `logs/`；启动前/结束调试后自动释放 `9090` |
-| `GopherAI: 前端`     | 先启动 `vue-frontend` dev server，再打开 Chrome 调试 `http://localhost:8080`；结束调试后自动释放 `8080` 等前端端口                                                          |
-| `GopherAI: 全栈调试` | 同时启动后端与前端（前端代理 `/api` → `localhost:9090`）；启动前清理残留端口，停止调试后释放 `9090`/`8080` 等                                                               |
-| `GopherAI: MCP 服务` | 独立调试 `cmd/mcp` 天气工具服务（`:8081`）；启动前/结束调试后自动释放 `8081`                                                                                                |
+| 配置名               | 说明                                                                                                                                                                         |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GopherAI: 后端`     | 以 Delve 调试 `cmd/server`，工作目录为项目根（读取 `config/config.toml`）；Gin 默认 debug 模式（彩色级别文本），日志双写 stdout 与 `logs/`；启动前/结束调试后自动释放 `9090` |
+| `GopherAI: 前端`     | 先启动 `vue-frontend` dev server，再打开 Chrome 调试 `http://localhost:8080`；结束调试后自动释放 `8080` 等前端端口                                                           |
+| `GopherAI: 全栈调试` | 同时启动后端与前端（前端代理 `/api` → `localhost:9090`）；启动前清理残留端口，停止调试后释放 `9090`/`8080` 等                                                                |
+| `GopherAI: MCP 服务` | 独立调试 `cmd/mcp` 天气工具服务（`:8081`）；启动前/结束调试后自动释放 `8081`                                                                                                 |
 
 前置条件：已安装 [Go 扩展](https://marketplace.visualstudio.com/items?itemName=golang.go) 与 Delve；前端调试需本机 Chrome。`vue-frontend` 依赖通过 `npm install` 安装。端口清理由 `.vscode/tasks.json` 调用 `.vscode/kill-ports.cmd` 完成（需 Windows，管理员权限非必须）。
 
@@ -174,7 +174,8 @@ apiKey = "your-api-key"
 后端日志由 `pkg/logger` 统一初始化（`bootstrap.New` 首行调用 `InitLogger`）：
 
 - **输出**：stdout 与 `logs/%Y-%m-%d.log` 双写；单文件超过 50MB 自动轮转，保留 30 天
-- **格式**：Gin `debug` 模式为易读文本（TextHandler），`release` / `test` 为 JSON（JSONHandler）；F5 调试后端时 Gin 未设 `GIN_MODE`，默认为 debug
+- **格式**：Gin `debug` 模式为易读文本（控制台带 ANSI 颜色级别标签 `DEBUG`/`INFO`/`WARN`/`ERROR`，文件同格式无颜色）；`release` / `test` 为 JSON；F5 调试后端时 Gin 未设 `GIN_MODE`，默认为 debug
+- **source**：指向业务调用方（如 `file/service.go:69`），而非 `pkg/logger` 包装层
 - **级别**：由 `pkg/logger/logger.go` 中 `defaultLogLevel` 常量控制（当前为 `debug`），修改后需重新编译；不设 `LOG_LEVEL` 环境变量
 
 ## 用户身份字段
