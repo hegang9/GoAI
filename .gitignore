@@ -28,3 +28,6 @@ logs/
 *.log
 
 uploads/
+
+# 本地评测数据集（可从上游公开数据集重新下载）
+dataset/

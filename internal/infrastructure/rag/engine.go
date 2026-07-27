@@ -549,6 +549,10 @@ func (e *Engine) RetrieveDetail(ctx context.Context, accountNo, query string, f 
 			relevant = FilterByRerankScore(reranked, e.cfg.RerankMinScore)
 		}
 	}
+	rerankedBeforeExpansion := relevantBeforeRerank
+	if rerankActive {
+		rerankedBeforeExpansion = append([]*schema.Document(nil), relevant...)
+	}
 
 	if len(relevant) == 0 {
 		logger.Info("Retrieve no relevant docs", "accountNo", accountNo, "retrieved", len(docs))
@@ -602,18 +606,10 @@ func (e *Engine) RetrieveDetail(ctx context.Context, accountNo, query string, f 
 		"relevant", len(relevant),
 		"rerankActive", rerankActive)
 
-	// Reranked 记录精排后的顺序：
-	//   - 启用精排：relevant 此时已是精排+分数过滤后的结果
-	//   - 未启用精排：与粗筛后顺序一致（relevantBeforeRerank）
-	reranked := relevantBeforeRerank
-	if rerankActive {
-		reranked = relevant
-	}
-
 	return RetrieveDetail{
 		Retrieved: toDocScores(docs),
 		Relevant:  toDocScores(relevantBeforeRerank),
-		Reranked:  toDocScores(reranked),
+		Reranked:  toDocScores(rerankedBeforeExpansion),
 		Final:     toDocScores(relevant),
 	}, nil
 }

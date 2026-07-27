@@ -41,6 +41,75 @@ GopherAI 是一个 Go + Vue 的 AI 应用示例，后端基于 Gin，前端基�
 go test ./test/... -v
 ```
 
+### RAG 离线评测（watsonxDocsQA）
+
+`cmd/ragbench` 默认读取 `dataset/watsonxDocsQA` 中的 Parquet 文件，将 1,144 篇
+`md_document` 以 `{doc_id}.md` 建立一次完整向量索引，再用 QA split 的
+`correct_answer_document_ids` 评估金标准文档召回率、空召回率和文档级 MRR（同一文档的
+多个 chunk 只占一个排名）。`train`（45 条）
+用于调参，`test`（30 条）用于最终验收；当前评测不判断最终生成答案是否匹配
+`correct_answer`。
+
+数据集目录是本地评测依赖，不纳入版本控制，目录结构应为：
+
+```text
+dataset/watsonxDocsQA/
+├── corpus/train-00000-of-00001.parquet
+└── question_answers/
+    ├── train-00000-of-00001.parquet
+    └── test-00000-of-00001.parquet
+```
+
+先执行无外部依赖的数据校验：
+
+```bash
+go run ./cmd/ragbench -validateOnly
+```
+
+完整测试会连接配置中的 Redis Stack、Embedding API，以及启用时的 reranker。
+默认使用专用测试账号 `95829666279`，清空该账号的旧向量索引后将完整 corpus
+重新建立 embedding：
+
+```bash
+# 首次运行或 RAG 索引配置发生变化：重建完整索引并执行 test split
+go run ./cmd/ragbench -split test -accountNo 95829666279
+
+# 索引已经完整存在时跳过重复 embedding
+go run ./cmd/ragbench -split test -accountNo 95829666279 -reindex=false
+
+# 用 train split 调整 chunk、TopK、距离阈值和 reranker 参数
+go run ./cmd/ragbench -split train -accountNo 95829666279 -reindex=false
+
+# 只评测前 3 条进行链路冒烟测试（默认仍会完整重建 corpus）
+go run ./cmd/ragbench -split test -limit 3
+```
+
+默认门禁为金标准文档召回率不低于 `0.80`、空召回率不高于 `0.10`。
+`-reindex=false` 不会验证 Redis 中索引的完整性，只应在确认上一次完整建库成功且
+embedding、分块和 reranker 配置没有改变时使用；正式验收应保持默认的完整重建。
+
+### Planner 离线评测集要求
+
+`cmd/planbench` 测试的是“是否检索、检索 query 改写、显式文档/章节 filter 提取”，
+不读取文档正文，也不评最终回答。评测集使用 JSONL，每行包含 `history`、
+`last_message` 以及以下期望字段：
+
+```json
+{"history":[],"last_message":"员工手册里的年假怎么申请？","expect":{"need_retrieval":true,"doc_filter":{"storedName":"","headers":""},"query_keywords":["员工手册","年假","申请"]}}
+```
+
+正式数据集建议至少 50 条，并将以下五类各控制在 8–12 条：
+
+- 明显不检索：闲聊、常识、创作、工具类问题。
+- 明显检索：必须依赖私有制度、手册、报告才能回答的问题。
+- 多轮指代：最后一句含“它、那个、需要提前几天”等，需要结合历史改写为自包含 query。
+- 显式范围：用户明确说出文件名或章节，用于校验 `storedName`/`headers`；不得替用户猜文件名。
+- 模糊边界：既像普通对话又可能涉及知识库，用于验证低置信度回退为不检索。
+
+正负样本应大致平衡，单轮与多轮都要覆盖。watsonxDocsQA 的问题几乎全是英文、单轮、
+应检索正例，只适合补充一部分 Planner 正样本，不能单独作为 Planner 门禁数据集。
+`planbench` 不需要真实登录账号或 Redis，使用空的专用账号名（如 `planner_bench`）即可。
+
 `test/` 目录包含：
 
 - `architecture_test.go`：领域层零框架依赖约束
