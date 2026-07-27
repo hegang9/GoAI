@@ -11,19 +11,22 @@ import (
 
 // Engine 定义评测用例所需的索引与可观测检索能力。
 type Engine interface {
+	InspectIndex(ctx context.Context, accountNo string) (domaineval.IndexState, error)
 	Reset(ctx context.Context, accountNo string) error
 	IndexDocument(ctx context.Context, accountNo string, document domaineval.Document) error
+	SaveIndexState(ctx context.Context, accountNo string, state domaineval.IndexState) error
 	Retrieve(ctx context.Context, accountNo, query string) (domaineval.RetrievalTrace, error)
 }
 
 // Options 控制索引生命周期、样本规模和质量门禁。
 type Options struct {
-	AccountNo    string
-	Split        string
-	Reindex      bool
-	Limit        int
-	MinRecall    float64
-	MaxEmptyRate float64
+	AccountNo              string
+	Split                  string
+	ForceReindex           bool
+	IndexConfigFingerprint string
+	Limit                  int
+	MinRecall              float64
+	MaxEmptyRate           float64
 }
 
 // Result 汇总一次 watsonxDocsQA 召回评测。
@@ -58,9 +61,24 @@ func Run(ctx context.Context, engine Engine, dataset domaineval.Dataset, opts Op
 	if len(dataset.Documents) == 0 || len(questions) == 0 {
 		return Result{}, fmt.Errorf("dataset is empty: documents=%d questions=%d", len(dataset.Documents), len(questions))
 	}
+	if dataset.CorpusFingerprint == "" || opts.IndexConfigFingerprint == "" {
+		return Result{}, fmt.Errorf("corpus and index configuration fingerprints are required")
+	}
 
-	if opts.Reindex {
-		fmt.Fprintf(output, "rebuilding index account=%s documents=%d\n", opts.AccountNo, len(dataset.Documents))
+	desiredState := domaineval.IndexState{
+		Exists: true, CorpusFingerprint: dataset.CorpusFingerprint,
+		IndexConfigFingerprint: opts.IndexConfigFingerprint,
+	}
+	rebuild, reason := true, "forced"
+	if !opts.ForceReindex {
+		currentState, err := engine.InspectIndex(ctx, opts.AccountNo)
+		if err != nil {
+			return Result{}, fmt.Errorf("inspect account %s index: %w", opts.AccountNo, err)
+		}
+		rebuild, reason = shouldRebuild(currentState, desiredState)
+	}
+	if rebuild {
+		fmt.Fprintf(output, "rebuilding index account=%s documents=%d reason=%s\n", opts.AccountNo, len(dataset.Documents), reason)
 		if err := engine.Reset(ctx, opts.AccountNo); err != nil {
 			return Result{}, fmt.Errorf("clear account %s index: %w", opts.AccountNo, err)
 		}
@@ -75,8 +93,11 @@ func Run(ctx context.Context, engine Engine, dataset domaineval.Dataset, opts Op
 				fmt.Fprintf(output, "indexed %d/%d documents\n", i+1, len(dataset.Documents))
 			}
 		}
+		if err := engine.SaveIndexState(ctx, opts.AccountNo, desiredState); err != nil {
+			return Result{}, fmt.Errorf("save account %s index state: %w", opts.AccountNo, err)
+		}
 	} else {
-		fmt.Fprintf(output, "reuse existing index account=%s (caller must ensure it is complete and configuration-compatible)\n", opts.AccountNo)
+		fmt.Fprintf(output, "reuse compatible index account=%s (corpus and index-time configuration unchanged)\n", opts.AccountNo)
 	}
 
 	var hitCount, emptyCount, rerankGain, rerankEligible int
@@ -143,6 +164,24 @@ func Run(ctx context.Context, engine Engine, dataset domaineval.Dataset, opts Op
 		fmt.Fprintln(output, "RESULT: FAIL (document recall or empty rate missed threshold)")
 	}
 	return result, nil
+}
+
+func shouldRebuild(current, desired domaineval.IndexState) (bool, string) {
+	if !current.Exists {
+		return true, "index_or_manifest_missing"
+	}
+	corpusChanged := current.CorpusFingerprint != desired.CorpusFingerprint
+	configChanged := current.IndexConfigFingerprint != desired.IndexConfigFingerprint
+	switch {
+	case corpusChanged && configChanged:
+		return true, "corpus_and_index_config_changed"
+	case corpusChanged:
+		return true, "corpus_changed"
+	case configChanged:
+		return true, "index_config_changed"
+	default:
+		return false, "compatible"
+	}
 }
 
 func uniqueDocumentRank(candidates []domaineval.Candidate, storedName string) int {

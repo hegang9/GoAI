@@ -79,6 +79,7 @@ func Load(datasetDir, split string) (domaineval.Dataset, error) {
 			ID: id, StoredName: id + ".md", Title: row.Title, Content: content,
 		})
 	}
+	dataset.CorpusFingerprint = domaineval.FingerprintDocuments(dataset.Documents)
 
 	for i, row := range questions {
 		id := strings.TrimSpace(row.QuestionID)

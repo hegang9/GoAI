@@ -197,6 +197,9 @@ func newEmbedder(ctx context.Context, cfg Config) (embedding.Embedder, error) {
 func (e *Engine) Index(ctx context.Context, accountNo, storedName, localPath string) error {
 	start := time.Now()
 	keyPrefix := e.vs.AccountPrefix(accountNo)
+	if err := e.vs.InvalidateIndexMetadata(ctx, accountNo); err != nil {
+		return fmt.Errorf("invalidate index metadata before write: %w", err)
+	}
 
 	initStart := time.Now()
 	if err := e.vs.InitIndex(ctx, accountNo, e.cfg.Dimension); err != nil {

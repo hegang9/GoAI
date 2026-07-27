@@ -9,15 +9,17 @@ import (
 	appbench "GopherAI/internal/application/evaluation/ragbench"
 	redisstore "GopherAI/internal/infrastructure/cache/redis"
 	"GopherAI/internal/infrastructure/evaluation/ragadapter"
+	raginfra "GopherAI/internal/infrastructure/rag"
 
 	redisCli "github.com/redis/go-redis/v9"
 )
 
 // RAGBenchmarkRuntime 持有评测所需的引擎适配器与可释放资源。
 type RAGBenchmarkRuntime struct {
-	Engine  appbench.Engine
-	redis   *redisCli.Client
-	adapter *ragadapter.Adapter
+	Engine                 appbench.Engine
+	IndexConfigFingerprint string
+	redis                  *redisCli.Client
+	adapter                *ragadapter.Adapter
 }
 
 // NewRAGBenchmarkRuntime 按生产配置装配独立的 RAG 评测运行时。
@@ -32,20 +34,23 @@ func NewRAGBenchmarkRuntime(ctx context.Context) (*RAGBenchmarkRuntime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init benchmark redis failed: %w", err)
 	}
-	engine, err := newRAGEngine(ctx, conf, redisstore.NewVectorStore(rdb))
+	vectorStore := redisstore.NewVectorStore(rdb)
+	ragCfg := ragEngineConfig(conf)
+	engine, err := raginfra.NewEngine(ctx, ragCfg, vectorStore, ragReranker(conf))
 	if err != nil {
 		_ = rdb.Close()
 		return nil, err
 	}
-	adapter, err := ragadapter.New(engine)
+	adapter, err := ragadapter.New(engine, vectorStore)
 	if err != nil {
 		_ = rdb.Close()
 		return nil, err
 	}
 	return &RAGBenchmarkRuntime{
-		Engine:  adapter,
-		redis:   rdb,
-		adapter: adapter,
+		Engine:                 adapter,
+		IndexConfigFingerprint: raginfra.IndexConfigFingerprint(ragCfg),
+		redis:                  rdb,
+		adapter:                adapter,
 	}, nil
 }
 

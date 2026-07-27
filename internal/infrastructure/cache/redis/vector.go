@@ -20,9 +20,10 @@ import (
 //	文档级前缀：  rag_docs:{accountNo}:{storedName}:    （按文档删除时的匹配前缀）
 //	最终向量 key：rag_docs:{accountNo}:{storedName}:chunk_N
 const (
-	indexNameTmpl     = "rag_docs:%s:idx"
-	accountPrefixTmpl = "rag_docs:%s:"
-	docKeyPrefixTmpl  = "rag_docs:%s:%s:"
+	indexNameTmpl        = "rag_docs:%s:idx"
+	accountPrefixTmpl    = "rag_docs:%s:"
+	docKeyPrefixTmpl     = "rag_docs:%s:%s:"
+	indexMetadataKeyTmpl = "rag_index_metadata:%s"
 )
 
 // scanBatch 删除文档向量时 SCAN 的单批游标步长。
@@ -55,6 +56,46 @@ func (v *VectorStore) AccountPrefix(accountNo string) string {
 // DocKeyPrefix 生成单个文档的向量 key 前缀，用于按文档删除。
 func (v *VectorStore) DocKeyPrefix(accountNo, storedName string) string {
 	return fmt.Sprintf(docKeyPrefixTmpl, accountNo, storedName)
+}
+
+// IndexStats 返回账号级向量索引是否存在及其当前文档块数。
+func (v *VectorStore) IndexStats(ctx context.Context, accountNo string) (bool, int, error) {
+	info, err := v.client.FTInfo(ctx, v.IndexName(accountNo)).Result()
+	if err != nil {
+		if strings.Contains(err.Error(), "Unknown index name") {
+			return false, 0, nil
+		}
+		return false, 0, fmt.Errorf("检查向量索引状态失败: %w", err)
+	}
+	return true, info.NumDocs, nil
+}
+
+// LoadIndexMetadata 读取与账号级向量索引生命周期绑定的不透明元数据。
+func (v *VectorStore) LoadIndexMetadata(ctx context.Context, accountNo string) ([]byte, bool, error) {
+	raw, err := v.client.Get(ctx, fmt.Sprintf(indexMetadataKeyTmpl, accountNo)).Bytes()
+	if err == redisCli.Nil {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("读取向量索引元数据失败: %w", err)
+	}
+	return raw, true, nil
+}
+
+// SaveIndexMetadata 保存与账号级向量索引生命周期绑定的不透明元数据。
+func (v *VectorStore) SaveIndexMetadata(ctx context.Context, accountNo string, metadata []byte) error {
+	if err := v.client.Set(ctx, fmt.Sprintf(indexMetadataKeyTmpl, accountNo), metadata, 0).Err(); err != nil {
+		return fmt.Errorf("保存向量索引元数据失败: %w", err)
+	}
+	return nil
+}
+
+// InvalidateIndexMetadata 在任何索引写入或删除前移除完成状态，避免复用部分索引。
+func (v *VectorStore) InvalidateIndexMetadata(ctx context.Context, accountNo string) error {
+	if err := v.client.Del(ctx, fmt.Sprintf(indexMetadataKeyTmpl, accountNo)).Err(); err != nil {
+		return fmt.Errorf("移除向量索引元数据失败: %w", err)
+	}
+	return nil
 }
 
 // InitIndex 为指定账号创建 RediSearch 向量索引（FLAT + COSINE + FLOAT32）。
@@ -149,6 +190,9 @@ func (v *VectorStore) GetNeighborChunk(ctx context.Context, accountNo, storedNam
 // DeleteDocVectors 删除指定账号下某个文档的全部向量数据（保留账号索引本身）。
 // 通过 SCAN 匹配文档级前缀，分批删除，避免使用阻塞性的 KEYS。
 func (v *VectorStore) DeleteDocVectors(ctx context.Context, accountNo, storedName string) error {
+	if err := v.InvalidateIndexMetadata(ctx, accountNo); err != nil {
+		return err
+	}
 	match := v.DocKeyPrefix(accountNo, storedName) + "*"
 	var cursor uint64
 	var removed int
@@ -175,6 +219,9 @@ func (v *VectorStore) DeleteDocVectors(ctx context.Context, accountNo, storedNam
 // DeleteIndex 删除指定账号的整个向量索引及其关联向量数据（DD 选项）。
 // 用于彻底清空某账号知识库。索引不存在时视为成功。
 func (v *VectorStore) DeleteIndex(ctx context.Context, accountNo string) error {
+	if err := v.InvalidateIndexMetadata(ctx, accountNo); err != nil {
+		return err
+	}
 	indexName := v.IndexName(accountNo)
 	if err := v.client.Do(ctx, "FT.DROPINDEX", indexName, "DD").Err(); err != nil {
 		if strings.Contains(err.Error(), "Unknown index name") {

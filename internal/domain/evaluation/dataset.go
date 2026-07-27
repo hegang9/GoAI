@@ -3,8 +3,9 @@ package evaluation
 
 // Dataset 是一次评测所需的公共语料与问题集。
 type Dataset struct {
-	Documents []Document
-	Questions []Question
+	Documents         []Document
+	Questions         []Question
+	CorpusFingerprint string
 }
 
 // Document 是可建立索引的文本文档。
@@ -36,4 +37,12 @@ type RetrievalTrace struct {
 	Relevant []Candidate
 	Reranked []Candidate
 	Final    []Candidate
+}
+
+// IndexState 描述评测账号当前向量索引与已完成建库的指纹。
+type IndexState struct {
+	Exists                 bool
+	CorpusFingerprint      string
+	IndexConfigFingerprint string
+	IndexedChunks          int
 }

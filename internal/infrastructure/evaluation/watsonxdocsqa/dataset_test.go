@@ -57,6 +57,9 @@ func TestLoadMapsCorpusAndQuestions(t *testing.T) {
 	if got := dataset.Documents[0].Content; got != "# Example\n\nmarkdown" {
 		t.Errorf("Content = %q, want markdown content", got)
 	}
+	if dataset.CorpusFingerprint == "" {
+		t.Error("CorpusFingerprint is empty")
+	}
 	if got := dataset.Questions[0].CorrectStoredName; got != "DOC1.md" {
 		t.Errorf("CorrectStoredName = %q, want %q", got, "DOC1.md")
 	}

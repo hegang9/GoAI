@@ -25,6 +25,7 @@ import (
 	imageinfra "GopherAI/internal/infrastructure/image"
 	"GopherAI/internal/infrastructure/mq/rabbitmq"
 	"GopherAI/internal/infrastructure/persistence"
+	raginfra "GopherAI/internal/infrastructure/rag"
 	"GopherAI/internal/infrastructure/security"
 	"GopherAI/internal/infrastructure/storage"
 	ttsinfra "GopherAI/internal/infrastructure/tts"
@@ -98,7 +99,7 @@ func New() (*App, error) {
 	vectorStore := redisstore.NewVectorStore(rdb)
 
 	// —— RAG 引擎 + AI 模型工厂 ——
-	ragEngine, err := newRAGEngine(context.Background(), conf, vectorStore)
+	ragEngine, err := raginfra.NewEngine(context.Background(), ragEngineConfig(conf), vectorStore, ragReranker(conf))
 	if err != nil {
 		return nil, fmt.Errorf("init rag engine failed: %w", err)
 	}

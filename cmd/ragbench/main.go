@@ -20,7 +20,7 @@ type options struct {
 	datasetDir   string
 	split        string
 	accountNo    string
-	reindex      bool
+	forceReindex bool
 	limit        int
 	minRecall    float64
 	maxEmpty     float64
@@ -59,8 +59,9 @@ func run() int {
 	}()
 
 	result, err := appbench.Run(ctx, runtime.Engine, dataset, appbench.Options{
-		AccountNo: opts.accountNo, Split: opts.split, Reindex: opts.reindex, Limit: opts.limit,
-		MinRecall: opts.minRecall, MaxEmptyRate: opts.maxEmpty,
+		AccountNo: opts.accountNo, Split: opts.split, ForceReindex: opts.forceReindex, Limit: opts.limit,
+		IndexConfigFingerprint: runtime.IndexConfigFingerprint,
+		MinRecall:              opts.minRecall, MaxEmptyRate: opts.maxEmpty,
 	}, os.Stdout)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ragbench failed: %v\n", err)
@@ -77,7 +78,7 @@ func parseFlags() options {
 	flag.StringVar(&opts.datasetDir, "datasetDir", "dataset/watsonxDocsQA", "watsonxDocsQA 数据集根目录")
 	flag.StringVar(&opts.split, "split", "test", "watsonxDocsQA 问题集：train 或 test")
 	flag.StringVar(&opts.accountNo, "accountNo", defaultBenchmarkAccount, "评测账号；重建时会清空其向量索引")
-	flag.BoolVar(&opts.reindex, "reindex", true, "运行前清空账号向量索引并重新索引完整 corpus")
+	flag.BoolVar(&opts.forceReindex, "reindex", false, "忽略指纹校验并强制重建完整 corpus")
 	flag.IntVar(&opts.limit, "limit", 0, "只评测前 N 条问题；0 表示完整 split")
 	flag.Float64Var(&opts.minRecall, "minRecall", 0.80, "金标准文档召回率门槛")
 	flag.Float64Var(&opts.maxEmpty, "maxEmptyRate", 0.10, "空召回率门槛")

@@ -67,26 +67,29 @@ go run ./cmd/ragbench -validateOnly
 ```
 
 完整测试会连接配置中的 Redis Stack、Embedding API，以及启用时的 reranker。
-默认使用专用测试账号 `95829666279`，清空该账号的旧向量索引后将完整 corpus
-重新建立 embedding：
+默认使用专用测试账号 `95829666279`。工具会校验 Redis 索引、语料指纹和索引期配置
+指纹：首次运行、语料变化或 embedding/分块配置变化时自动重建；只有检索期配置变化时
+直接复用已有索引：
 
 ```bash
-# 首次运行或 RAG 索引配置发生变化：重建完整索引并执行 test split
+# 自动判断：首次运行会建库，索引兼容时直接复用
 go run ./cmd/ragbench -split test -accountNo 95829666279
 
-# 索引已经完整存在时跳过重复 embedding
-go run ./cmd/ragbench -split test -accountNo 95829666279 -reindex=false
+# 用 train split 调整 TopK、距离阈值或 reranker 后会复用索引
+go run ./cmd/ragbench -split train -accountNo 95829666279
 
-# 用 train split 调整 chunk、TopK、距离阈值和 reranker 参数
-go run ./cmd/ragbench -split train -accountNo 95829666279 -reindex=false
+# 显式忽略校验并强制重建
+go run ./cmd/ragbench -split test -accountNo 95829666279 -reindex=true
 
-# 只评测前 3 条进行链路冒烟测试（默认仍会完整重建 corpus）
+# 只评测前 3 条进行链路冒烟测试
 go run ./cmd/ragbench -split test -limit 3
 ```
 
 默认门禁为金标准文档召回率不低于 `0.80`、空召回率不高于 `0.10`。
-`-reindex=false` 不会验证 Redis 中索引的完整性，只应在确认上一次完整建库成功且
-embedding、分块和 reranker 配置没有改变时使用；正式验收应保持默认的完整重建。
+索引期配置包括 embedding 模型/BaseURL/维度、分块大小与重叠、语义切分和标题注入；
+检索期配置包括 TopK、距离阈值、召回候选数、上下文窗口和 reranker。建库完成标记只在
+1,144 篇文档全部索引成功后写入，并记录实际 chunk 数；上传或删除向量会先使标记失效，
+途中失败、索引缺失或 chunk 数不一致都会在下次运行时自动重建。
 
 ### Planner 离线评测集要求
 
