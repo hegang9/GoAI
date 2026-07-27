@@ -99,7 +99,35 @@ func New() (*App, error) {
 	vectorStore := redisstore.NewVectorStore(rdb)
 
 	// —— RAG 引擎 + AI 模型工厂 ——
-	ragEngine, err := raginfra.NewEngine(context.Background(), ragEngineConfig(conf), vectorStore, ragReranker(conf))
+	// 精排器（reranker）：仅在配置开启时构造，复用统一的 AI API Key；
+	// 关闭或未配置时传 nil，Engine 自动按纯向量排序运行。
+	var reranker raginfra.Reranker
+	if conf.RagRerankEnable {
+		reranker = raginfra.NewHTTPReranker(conf.RagRerankBaseUrl, conf.RagAPIKey, conf.RagRerankModel)
+		logger.Info("rag reranker init success",
+			"model", conf.RagRerankModel,
+			"baseURL", conf.RagRerankBaseUrl)
+	}
+	ragEngine, err := raginfra.NewEngine(context.Background(), raginfra.Config{
+		EmbeddingModel: conf.RagEmbeddingModel,
+		BaseURL:        conf.RagBaseUrl,
+		APIKey:         conf.RagAPIKey,
+		Dimension:      conf.RagDimension,
+		ChunkSize:      conf.RagChunkSize,
+		ChunkOverlap:   conf.RagChunkOverlap,
+		TopK:           conf.RagTopK,
+		MaxDistance:    conf.RagMaxDistance,
+		RecallTopK:     conf.RagRecallTopK,
+		RerankTopK:     conf.RagRerankTopK,
+		RerankEnable:   conf.RagRerankEnable,
+		RerankMinScore: conf.RagRerankMinScore,
+		// 文档分块与索引升级（默认关闭，仅对新上传文档生效）：
+		EnableSemanticChunking: conf.RagEnableSemanticChunking,
+		SemanticPercentile:     conf.RagSemanticBreakpointPercentile,
+		SemanticBufferSize:     conf.RagSemanticBufferSize,
+		ContextWindow:          conf.RagContextWindow,
+		EnableHeaderInjection:  conf.RagEnableHeaderInjection,
+	}, vectorStore, reranker)
 	if err != nil {
 		return nil, fmt.Errorf("init rag engine failed: %w", err)
 	}
