@@ -91,27 +91,29 @@ go run ./cmd/ragbench -split test -limit 3
 1,144 篇文档全部索引成功后写入，并记录实际 chunk 数；上传或删除向量会先使标记失效，
 途中失败、索引缺失或 chunk 数不一致都会在下次运行时自动重建。
 
-### Planner 离线评测集要求
+### Planner 离线评测（PlanBench）
 
-`cmd/planbench` 测试的是“是否检索、检索 query 改写、显式文档/章节 filter 提取”，
-不读取文档正文，也不评最终回答。评测集使用 JSONL，每行包含 `history`、
-`last_message` 以及以下期望字段：
+`cmd/planbench` 评估 Planner 的检索决策、query 改写与显式文档/章节 filter 提取；
+不读取文档正文、不连接 Redis，也不评最终回答。默认加载本地
+`dataset/watsonxDocsQA` 与受版本控制的 `testdata/planbench/evalset.jsonl`，按 `train`/
+`test` 合并为双源评测集。首版共 135 条：45 条 watsonxDocsQA 英文单轮正例，以及 90 条
+通用企业中文人工样本，整体为 67 条应检索、68 条不检索。
 
-```json
-{"history":[],"last_message":"员工手册里的年假怎么申请？","expect":{"need_retrieval":true,"doc_filter":{"storedName":"","headers":""},"query_keywords":["员工手册","年假","申请"]}}
+```bash
+# 校验数据集，不调用 Planner
+go run ./cmd/planbench -validateOnly -split test
+
+# 运行完整 test split；需要可用的 [plannerConfig]
+go run ./cmd/planbench -split test -accountNo planner_bench
+
+# 运行 train split 或只运行前 3 条
+go run ./cmd/planbench -split train
+go run ./cmd/planbench -split test -limit 3
 ```
 
-正式数据集建议至少 50 条，并将以下五类各控制在 8–12 条：
-
-- 明显不检索：闲聊、常识、创作、工具类问题。
-- 明显检索：必须依赖私有制度、手册、报告才能回答的问题。
-- 多轮指代：最后一句含“它、那个、需要提前几天”等，需要结合历史改写为自包含 query。
-- 显式范围：用户明确说出文件名或章节，用于校验 `storedName`/`headers`；不得替用户猜文件名。
-- 模糊边界：既像普通对话又可能涉及知识库，用于验证低置信度回退为不检索。
-
-正负样本应大致平衡，单轮与多轮都要覆盖。watsonxDocsQA 的问题几乎全是英文、单轮、
-应检索正例，只适合补充一部分 Planner 正样本，不能单独作为 Planner 门禁数据集。
-`planbench` 不需要真实登录账号或 Redis，使用空的专用账号名（如 `planner_bench`）即可。
+评测账号目录必须不存在或为空；工具会在 `uploads/{accountNo}` 创建并清理占位文件，
+请使用专用账号。当前仅输出误判率、filter 准确率和 ROUGE-L 观察指标，不设置质量门禁。
+详细格式与使用方法见 [docs/PlanBench使用说明.md](docs/PlanBench使用说明.md)。
 
 `test/` 目录包含：
 
