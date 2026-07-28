@@ -72,6 +72,9 @@ type MessagePO struct {
 	// ID 自增主键。
 	ID uint `gorm:"primaryKey;autoIncrement;column:id;index:idx_message_replay"`
 
+	// MessageID 是跨 RabbitMQ 投递保持不变的消息唯一标识
+	MessageID string `gorm:"type:varchar(36);not null;column:message_id;uniqueIndex:uk_messages_message_id"`
+
 	// SessionID 所属会话标识，建立索引以加速按会话查询。
 	SessionID string `gorm:"index;not null;type:varchar(36);column:session_id;index:idx_message_replay"`
 

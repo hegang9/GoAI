@@ -3,6 +3,7 @@ package rabbitmq
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"GopherAI/internal/domain/chat"
 	"GopherAI/pkg/logger"
@@ -14,7 +15,7 @@ const payloadSchemaVersion = 1
 // payload 是消息在队列中传输的 JSON 载荷，独立于数据库模型，避免持久化字段污染消息体。
 type payload struct {
 	SchemaVersion int    `json:"schema_version"`
-	MessageID     string `json:"id"`
+	MessageID     string `json:"message_id"`
 	SessionID     string `json:"session_id"`
 	Content       string `json:"content"`
 	AccountNo     string `json:"account_no"`
@@ -75,6 +76,16 @@ func (c *Consumer) decode(body []byte) error {
 	if err := json.Unmarshal(body, &p); err != nil {
 		return err
 	}
+	if p.SchemaVersion != payloadSchemaVersion {
+		return fmt.Errorf(
+			"unsupported payload schema version: %d",
+			p.SchemaVersion,
+		)
+	}
+	if p.MessageID == "" {
+		return fmt.Errorf("rabbitmq payload message_id is empty")
+	}
+
 	return c.handle(context.Background(), chat.Message{
 		ID:        p.MessageID,
 		SessionID: p.SessionID,
