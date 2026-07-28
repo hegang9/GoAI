@@ -8,12 +8,17 @@ import (
 	"GopherAI/pkg/logger"
 )
 
+// 版本号
+const payloadSchemaVersion = 1
+
 // payload 是消息在队列中传输的 JSON 载荷，独立于数据库模型，避免持久化字段污染消息体。
 type payload struct {
-	SessionID string `json:"session_id"`
-	Content   string `json:"content"`
-	AccountNo string `json:"account_no"`
-	IsUser    bool   `json:"is_user"`
+	SchemaVersion int    `json:"schema_version"`
+	MessageID     string `json:"id"`
+	SessionID     string `json:"session_id"`
+	Content       string `json:"content"`
+	AccountNo     string `json:"account_no"`
+	IsUser        bool   `json:"is_user"`
 }
 
 // Publisher 通过 RabbitMQ 实现 domain/chat.MessageSink 端口：
@@ -33,10 +38,12 @@ var _ chat.MessageSink = (*Publisher)(nil)
 // Save 将领域消息序列化为 JSON 并发布到队列。
 func (p *Publisher) Save(msg chat.Message) error {
 	data, _ := json.Marshal(payload{
-		SessionID: msg.SessionID,
-		Content:   msg.Content,
-		AccountNo: msg.AccountNo,
-		IsUser:    msg.IsUser,
+		SchemaVersion: payloadSchemaVersion,
+		MessageID:     msg.ID,
+		SessionID:     msg.SessionID,
+		Content:       msg.Content,
+		AccountNo:     msg.AccountNo,
+		IsUser:        msg.IsUser,
 	})
 	if err := p.client.Publish(data); err != nil {
 		logger.Error("Publisher Save publish failed", "sessionID", msg.SessionID, "err", err)
@@ -69,6 +76,7 @@ func (c *Consumer) decode(body []byte) error {
 		return err
 	}
 	return c.handle(context.Background(), chat.Message{
+		ID:        p.MessageID,
 		SessionID: p.SessionID,
 		Content:   p.Content,
 		AccountNo: p.AccountNo,

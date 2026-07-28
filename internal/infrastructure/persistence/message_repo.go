@@ -6,6 +6,7 @@ import (
 	"GopherAI/internal/domain/chat"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // MessageRepository 基于 GORM 实现 domain/chat.MessageRepository 端口。
@@ -21,15 +22,24 @@ func NewMessageRepository(db *gorm.DB) *MessageRepository {
 // 编译期断言：MessageRepository 必须满足领域端口。
 var _ chat.MessageRepository = (*MessageRepository)(nil)
 
-// Create 持久化一条消息。
+// Create 持久化一条消息（幂等）。
 func (r *MessageRepository) Create(ctx context.Context, msg chat.Message) error {
 	po := MessagePO{
+		MessageID: msg.ID,
 		SessionID: msg.SessionID,
 		AccountNo: msg.AccountNo,
 		Content:   msg.Content,
 		IsUser:    msg.IsUser,
 	}
-	return r.db.WithContext(ctx).Create(&po).Error
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "message_id"},
+			},
+			DoNothing: true,
+		}).
+		Create(&po).
+		Error
 }
 
 // ListAll 读取全部历史消息。
@@ -64,6 +74,7 @@ func messageToDomain(pos []MessagePO) []chat.Message {
 	msgs := make([]chat.Message, 0, len(pos))
 	for _, po := range pos {
 		msgs = append(msgs, chat.Message{
+			ID:        po.MessageID,
 			SessionID: po.SessionID,
 			AccountNo: po.AccountNo,
 			Content:   po.Content,

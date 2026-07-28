@@ -3,6 +3,8 @@ package chat
 import (
 	"context"
 	"sync"
+
+	"GopherAI/pkg/id"
 )
 
 // Conversation 是“单个会话”的领域聚合：持有会话消息历史、绑定的模型，
@@ -44,6 +46,7 @@ func (c *Conversation) ModelType() string { return c.model.Type() }
 // 回放历史时传入 persist=false：仅重建内存上下文，不再二次落库。
 func (c *Conversation) AddMessage(content, accountNo string, isUser, persist bool) error {
 	msg := Message{
+		ID:        id.GenerateUUID(),
 		SessionID: c.sessionID,
 		AccountNo: accountNo,
 		Content:   content,
