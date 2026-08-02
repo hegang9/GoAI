@@ -38,7 +38,7 @@ var _ chat.MessageSink = (*Publisher)(nil)
 
 // Save 将领域消息序列化为 JSON 并发布到队列。
 func (p *Publisher) Save(msg chat.Message) error {
-	data, _ := json.Marshal(payload{
+	data, err := json.Marshal(payload{
 		SchemaVersion: payloadSchemaVersion,
 		MessageID:     msg.ID,
 		SessionID:     msg.SessionID,
@@ -46,7 +46,10 @@ func (p *Publisher) Save(msg chat.Message) error {
 		AccountNo:     msg.AccountNo,
 		IsUser:        msg.IsUser,
 	})
-	if err := p.client.Publish(data); err != nil {
+	if err != nil {
+		return fmt.Errorf("encode payload failed: %w", err)
+	}
+	if err := p.client.Publish(msg.ID, data); err != nil {
 		logger.Error("Publisher Save publish failed", "sessionID", msg.SessionID, "err", err)
 		return err
 	}
@@ -74,16 +77,16 @@ func (c *Consumer) Start() {
 func (c *Consumer) decode(body []byte) error {
 	var p payload
 	if err := json.Unmarshal(body, &p); err != nil {
-		return err
+		return permanentError(fmt.Errorf("decode payload failed: %w", err))
 	}
 	if p.SchemaVersion != payloadSchemaVersion {
-		return fmt.Errorf(
+		return permanentError(fmt.Errorf(
 			"unsupported payload schema version: %d",
 			p.SchemaVersion,
-		)
+		))
 	}
 	if p.MessageID == "" {
-		return fmt.Errorf("rabbitmq payload message_id is empty")
+		return permanentError(fmt.Errorf("rabbitmq payload message_id is empty"))
 	}
 
 	return c.handle(context.Background(), chat.Message{

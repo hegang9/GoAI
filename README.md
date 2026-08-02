@@ -96,7 +96,7 @@ go test ./test/... -v
 | `[mainConfig]`         | 后端监听地址与端口，默认 `0.0.0.0:9090`                                                                                                                                                                                                                        |
 | `[mysqlConfig]`        | MySQL 地址、账号、密码、数据库名和字符集                                                                                                                                                                                                                       |
 | `[redisConfig]`        | Redis 地址、密码、DB，以及启动阶段 Ping 超时（`pingTimeoutMs`，<=0 默认 3000）                                                                                                                                                                                 |
-| `[rabbitmqConfig]`     | RabbitMQ 地址、账号、密码、vhost，以及会话消息持久化队列名（`queue`，为空默认 `"Message"`）                                                                                                                                                                    |
+| `[rabbitmqConfig]`     | RabbitMQ 地址、凭证和 vhost；主链路、五档延迟重试、最终 DLQ 的 exchange/queue/routing key；本地重试、抖动、prefetch 与发布确认超时                                                                                                                            |
 | `[emailConfig]`        | 注册验证码邮件配置                                                                                                                                                                                                                                             |
 | `[jwtConfig]`          | JWT 过期时间、签发信息和密钥                                                                                                                                                                                                                                   |
 | `[ragModelConfig]`     | RAG 使用的嵌入模型名、独立 API Key、文档目录、OpenAI 兼容 Base URL、向量维度，以及检索增强参数（分块大小/重叠、TopK、距离阈值、是否启用多轮 query 改写、是否启用精排 reranker 及其召回放大/截断/最低分阈值、语义切分/上下文增强/块头标签三项分块索引升级开关） |
@@ -106,6 +106,10 @@ go test ./test/... -v
 | `[plannerConfig]`      | planner 检索决策器：是否启用、轻量模型名/BaseURL/APIKey、回溯窗口与超时                                                                                                                                                                                        |
 | `[mcpConfig]`          | MCP 工具服务 Streamable HTTP 端点（`baseUrl`）；auto 模型懒连接拉取工具集，为空时退化为无工具纯生成                                                                                                                                                            |
 | `[imageServiceConfig]` | ONNX 图像识别模型与标签文件路径（`modelPath` / `labelPath`），随部署环境变化                                                                                                                                                                                   |
+
+RabbitMQ 适配器启动时会按配置幂等声明主链路、五档延迟重试与 DLQ 拓扑；控制台中同名对象的类型或参数不一致会导致启动失败。正常、重试和最终 DLQ 发布均复用 confirmed-publish 流程，使用持久化消息、`mandatory`、publisher confirm 和不可路由检查；消费端使用独立 Channel、显式 prefetch 与手动 ACK。首次瞬时失败按配置进行本地快速重试，仍失败时携带 `x-retry-count` 依次进入五档延迟队列，并增加 0～25% 随机抖动；确定性异常或五次延迟重试耗尽后可靠发布到最终 DLQ。重试或 DLQ 副本收到 Broker confirm 后才 ACK 原消息，系统性异常或可靠发布失败时关闭消费 Channel，使未 ACK 消息重新入队。
+
+RabbitMQ 包的单元测试覆盖错误分类、重试 Header 解析、档位边界、抖动范围、本地快速重试、confirmed-publish 前置校验和 DLQ 消息构造；真实 Exchange/Queue 路由、TTL 回流及 ACK 时序仍需在独立测试 vhost 中执行集成测试。
 
 `[chatReplayConfig]` 示例：
 

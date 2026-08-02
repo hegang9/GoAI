@@ -23,8 +23,8 @@ require (
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
 	github.com/mark3labs/mcp-go v0.43.2
+	github.com/rabbitmq/amqp091-go v1.13.0
 	github.com/redis/go-redis/v9 v9.16.0
-	github.com/streadway/amqp v1.1.0
 	github.com/yalue/onnxruntime_go v1.22.0
 	golang.org/x/crypto v0.43.0
 	golang.org/x/image v0.33.0

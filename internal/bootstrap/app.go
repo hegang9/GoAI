@@ -158,17 +158,38 @@ func New() (*App, error) {
 	}, ragEngine)
 
 	// —— 消息队列（RabbitMQ）：发布端作为会话消息 Sink，消费端落库 ——
-	queueName := conf.RabbitmqQueue
-	if queueName == "" {
-		queueName = "Message"
+	retryTiers := make([]rabbitmq.RetryTier, 0, len(conf.RabbitmqRetryTiers))
+	for _, tier := range conf.RabbitmqRetryTiers {
+		retryTiers = append(retryTiers, rabbitmq.RetryTier{
+			Queue:      tier.Queue,
+			RoutingKey: tier.RoutingKey,
+			DelayMs:    tier.DelayMs,
+		})
 	}
+
 	rabbit, err := rabbitmq.Connect(rabbitmq.Config{
 		Host:     conf.RabbitmqHost,
 		Port:     conf.RabbitmqPort,
 		Username: conf.RabbitmqUsername,
 		Password: conf.RabbitmqPassword,
 		Vhost:    conf.RabbitmqVhost,
-		Queue:    queueName,
+
+		MainExchange:   conf.RabbitmqMainExchange,
+		MainQueue:      conf.RabbitmqMainQueue,
+		MainRoutingKey: conf.RabbitmqMainRoutingKey,
+
+		RetryExchange:      conf.RabbitmqRetryExchange,
+		RetryTiers:         retryTiers,
+		RetryJitterPercent: conf.RabbitmqRetryJitterPercent,
+		MaxRetries:         conf.RabbitmqMaxRetries,
+		LocalRetryDelaysMs: conf.RabbitmqLocalRetryDelaysMs,
+
+		DeadLetterExchange:   conf.RabbitmqDeadLetterExchange,
+		DeadLetterQueue:      conf.RabbitmqDeadLetterQueue,
+		DeadLetterRoutingKey: conf.RabbitmqDeadLetterRoutingKey,
+
+		PrefetchCount:           conf.RabbitmqPrefetchCount,
+		PublishConfirmTimeoutMs: conf.RabbitmqPublishConfirmTimeoutMs,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("init rabbitmq failed: %w", err)
