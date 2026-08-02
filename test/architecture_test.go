@@ -22,7 +22,7 @@ var forbiddenDomainImports = []string{
 	"gorm.io",
 	"github.com/cloudwego/eino",
 	"github.com/redis/go-redis",
-	"github.com/streadway/amqp",
+	"github.com/rabbitmq/amqp091-go",
 	"github.com/golang-jwt",
 	"github.com/yalue/onnxruntime_go",
 }

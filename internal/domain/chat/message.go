@@ -8,6 +8,8 @@ package chat
 
 // Message 是会话中的一条消息领域值对象，独立于数据库模型。
 type Message struct {
+	// 全局唯一标识，支撑幂等
+	ID string
 	// SessionID 所属会话标识。
 	SessionID string
 	// AccountNo 消息归属的内部账号编号。

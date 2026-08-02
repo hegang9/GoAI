@@ -24,8 +24,8 @@ require (
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
 	github.com/mark3labs/mcp-go v0.43.2
 	github.com/parquet-go/parquet-go v0.30.1
+	github.com/rabbitmq/amqp091-go v1.13.0
 	github.com/redis/go-redis/v9 v9.16.0
-	github.com/streadway/amqp v1.1.0
 	github.com/yalue/onnxruntime_go v1.22.0
 	golang.org/x/crypto v0.43.0
 	golang.org/x/image v0.33.0
