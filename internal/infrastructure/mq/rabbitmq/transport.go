@@ -6,13 +6,12 @@
 package rabbitmq
 
 import (
+	"GopherAI/pkg/logger"
 	"context"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
-
-	"GopherAI/pkg/logger"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )

@@ -93,3 +93,19 @@ type MessagePO struct {
 
 // TableName 显式指定消息表名。
 func (MessagePO) TableName() string { return "messages" }
+
+// DelayTaskPO 延迟任务持久化对象，对应数据库 delay_tasks 表。
+type DelayTaskPO struct {
+	ID          string    `gorm:"primaryKey;type:varchar(36);column:id"`
+	AccountNo   string    `gorm:"index;not null;column:account_no"`
+	Destination string    `gorm:"type:varchar(255);column:destination"`
+	TargetAt    int64     `gorm:"not null;column:target_at"`
+	Payload     []byte    `gorm:"type:text;column:payload"`
+	Version     int64     `gorm:"not null;column:version"`
+	Status      uint8     `gorm:"not null;column:status"`
+	PayLoadHash []byte    `gorm:"type:binary(32);not null;column:pay_load_hash"`
+	CreatedAt   time.Time `gorm:"autoCreateTime;column:created_at"`
+	UpdatedAt   time.Time `gorm:"autoUpdateTime;column:updated_at"`
+}
+
+func (DelayTaskPO) TableName() string { return "delay_tasks" }
