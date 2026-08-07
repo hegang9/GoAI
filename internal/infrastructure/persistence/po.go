@@ -103,7 +103,7 @@ type DelayTaskPO struct {
 	Payload     []byte    `gorm:"type:text;column:payload"`
 	Version     int64     `gorm:"not null;column:version"`
 	Status      uint8     `gorm:"not null;column:status"`
-	PayLoadHash []byte    `gorm:"type:binary(32);not null;column:pay_load_hash"`
+	TaskHash    []byte    `gorm:"type:binary(32);not null;column:task_hash"`
 	CreatedAt   time.Time `gorm:"autoCreateTime;column:created_at"`
 	UpdatedAt   time.Time `gorm:"autoUpdateTime;column:updated_at"`
 }
