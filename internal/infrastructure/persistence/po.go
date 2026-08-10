@@ -96,16 +96,37 @@ func (MessagePO) TableName() string { return "messages" }
 
 // DelayTaskPO 延迟任务持久化对象，对应数据库 delay_tasks 表。
 type DelayTaskPO struct {
-	ID          string    `gorm:"primaryKey;type:varchar(36);column:id"`
-	AccountNo   string    `gorm:"index;not null;column:account_no"`
-	Destination string    `gorm:"type:varchar(255);column:destination"`
-	TargetAt    int64     `gorm:"not null;column:target_at"`
-	Payload     []byte    `gorm:"type:text;column:payload"`
-	Version     int64     `gorm:"not null;column:version"`
-	Status      uint8     `gorm:"not null;column:status"`
-	TaskHash    []byte    `gorm:"type:binary(32);not null;column:task_hash"`
-	CreatedAt   time.Time `gorm:"autoCreateTime;column:created_at"`
-	UpdatedAt   time.Time `gorm:"autoUpdateTime;column:updated_at"`
+	// ID 是全链路稳定的任务幂等键。
+	ID string `gorm:"primaryKey;type:varchar(36);column:id;index:idx_delay_due,priority:3;index:idx_delay_lease,priority:3"`
+	// AccountNo 用于任务归属和账号隔离。
+	AccountNo string `gorm:"index;not null;column:account_no"`
+	// Destination 是由服务端控制的目标逻辑名称。
+	Destination string `gorm:"type:varchar(255);not null;column:destination"`
+	// TargetAt 是绝对目标时间，单位为 UTC Unix 毫秒。
+	TargetAt int64 `gorm:"not null;column:target_at;index:idx_delay_due,priority:2"`
+	// Payload 是创建后不可变的原始业务载荷。
+	Payload []byte `gorm:"type:mediumblob;not null;column:payload"`
+	// Version 标识当前状态转换版本，用于拒绝迟到回调。
+	Version int64 `gorm:"not null;column:version"`
+	// Status 表示任务当前所处的持有和转交阶段。
+	Status uint8 `gorm:"not null;column:status;index:idx_delay_due,priority:1;index:idx_delay_lease,priority:1"`
+	// TaskHash 是不可变任务内容的 SHA-256，用于幂等创建校验。
+	TaskHash []byte `gorm:"type:binary(32);not null;column:task_hash"`
+	// LeaseOwner 是当前持有任务租约的 Poller 实例标识。
+	LeaseOwner string `gorm:"type:varchar(64);not null;default:'';column:lease_owner"`
+	// LeaseUntilMs 是租约到期时间，单位为 UTC Unix 毫秒。
+	LeaseUntilMs int64 `gorm:"not null;default:0;column:lease_until_ms;index:idx_delay_lease,priority:2"`
+	// Attempts 是 MySQL 向 Level MQ 发起转交的累计次数。
+	Attempts int `gorm:"not null;default:0;column:attempts"`
+	// LastError 保存最近一次明确投递失败的错误摘要。
+	LastError string `gorm:"type:varchar(1024);not null;default:'';column:last_error"`
+	// LevelQueuedAt 是 Level MQ 返回 Broker confirm 的时间。
+	LevelQueuedAt *time.Time `gorm:"column:level_queued_at"`
+	// CreatedAt 是任务记录的创建时间。
+	CreatedAt time.Time `gorm:"autoCreateTime;column:created_at"`
+	// UpdatedAt 是任务记录的最后更新时间。
+	UpdatedAt time.Time `gorm:"autoUpdateTime;column:updated_at"`
 }
 
+// TableName 显式指定延迟任务表名。
 func (DelayTaskPO) TableName() string { return "delay_tasks" }

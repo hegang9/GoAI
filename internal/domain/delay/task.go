@@ -25,7 +25,7 @@ type Task struct {
 	AccountNo string
 	// Destination 是目标逻辑名称，由基础设施适配器映射到受控的最终消息路由。
 	Destination string
-	// TargetAt 是绝对目标发送时间；进入各级延迟链路后不得按接收时间重新计算。
+	// TargetAt 是 UTC Unix 毫秒绝对目标时间；进入各级延迟链路后不得按接收时间重新计算。
 	TargetAt int64
 	// Payload 是需要在目标时间投递的原始业务载荷，任务创建后应保持不可变。
 	Payload []byte

@@ -20,8 +20,8 @@ type DelayTaskRepository interface {
 	// ACK 结果未知时不得假定转交失败，允许租约恢复后使用同一任务 ID 重投并产生重复消息。
 	MarkLevelQueued(ctx context.Context, taskID, owner string, version int64) error
 	// Release 在明确确认 Level MQ 未接管任务时释放租约，使任务重新进入可抢占状态。
-	// cause 用于保留最近一次失败原因，不应作为幂等判断依据。
-	Release(ctx context.Context, taskID, owner string, cause error) error
+	// version 用于拒绝上一轮投递的迟到回调；cause 仅保留最近一次失败原因。
+	Release(ctx context.Context, taskID, owner string, version int64, cause error) error
 	// Cancel 使用 expectedVersion 执行乐观锁取消；任务已进入不可撤回阶段时返回 ErrTooLate。
 	Cancel(ctx context.Context, accountNo, taskID string, expectedVersion int64) error
 }

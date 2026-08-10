@@ -6,6 +6,7 @@ toolchain go1.24.10
 
 require (
 	github.com/BurntSushi/toml v0.3.1
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/cloudwego/eino v0.6.0
 	github.com/cloudwego/eino-ext/components/document/transformer/splitter/markdown v0.0.0-20260616080858-ab17b7308bf8
 	github.com/cloudwego/eino-ext/components/document/transformer/splitter/recursive v0.0.0-20260616080858-ab17b7308bf8
