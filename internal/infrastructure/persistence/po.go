@@ -97,15 +97,11 @@ func (MessagePO) TableName() string { return "messages" }
 // DelayTaskPO 延迟任务持久化对象，对应数据库 delay_tasks 表。
 type DelayTaskPO struct {
 	// ID 是全链路稳定的任务幂等键。
-	ID string `gorm:"primaryKey;type:varchar(36);column:id;index:idx_delay_due,priority:3;index:idx_delay_lease,priority:3"`
+	ID string `gorm:"primaryKey;type:varchar(64);column:id;index:idx_delay_due,priority:3;index:idx_delay_lease,priority:3"`
 	// AccountNo 用于任务归属和账号隔离。
 	AccountNo string `gorm:"index;not null;column:account_no"`
-	// Destination 是由服务端控制的目标逻辑名称。
-	Destination string `gorm:"type:varchar(255);not null;column:destination"`
 	// TargetAt 是绝对目标时间，单位为 UTC Unix 毫秒。
 	TargetAt int64 `gorm:"not null;column:target_at;index:idx_delay_due,priority:2"`
-	// Payload 是创建后不可变的原始业务载荷。
-	Payload []byte `gorm:"type:mediumblob;not null;column:payload"`
 	// Version 标识当前状态转换版本，用于拒绝迟到回调。
 	Version int64 `gorm:"not null;column:version"`
 	// Status 表示任务当前所处的持有和转交阶段。
@@ -116,8 +112,8 @@ type DelayTaskPO struct {
 	LeaseOwner string `gorm:"type:varchar(64);not null;default:'';column:lease_owner"`
 	// LeaseUntilMs 是租约到期时间，单位为 UTC Unix 毫秒。
 	LeaseUntilMs int64 `gorm:"not null;default:0;column:lease_until_ms;index:idx_delay_lease,priority:2"`
-	// Attempts 是 MySQL 向 Level MQ 发起转交的累计次数。
-	Attempts int `gorm:"not null;default:0;column:attempts"`
+	// DispatchAttempts 是 Poller 抢占任务并尝试转交 Level MQ 的累计次数。
+	DispatchAttempts int `gorm:"not null;default:0;column:attempts"`
 	// LastError 保存最近一次明确投递失败的错误摘要。
 	LastError string `gorm:"type:varchar(1024);not null;default:'';column:last_error"`
 	// LevelQueuedAt 是 Level MQ 返回 Broker confirm 的时间。
@@ -126,6 +122,20 @@ type DelayTaskPO struct {
 	CreatedAt time.Time `gorm:"autoCreateTime;column:created_at"`
 	// UpdatedAt 是任务记录的最后更新时间。
 	UpdatedAt time.Time `gorm:"autoUpdateTime;column:updated_at"`
+
+	// Message 展开字段
+	MessageID          string `gorm:"type:varchar(128);not null;column:message_id"`
+	MessageTopic       string `gorm:"type:varchar(255);not null;column:message_topic"`
+	MessageHeaders     []byte `gorm:"type:json;not null;column:message_headers"`
+	MessageBody        []byte `gorm:"type:mediumblob;not null;column:message_body"`
+	MessageTimestampMs int64  `gorm:"not null;column:message_timestamp_ms"`
+
+	// Target 展开字段
+	TargetKind          uint8  `gorm:"not null;column:target_kind"`
+	TargetConsumerGroup string `gorm:"type:varchar(255);not null;column:target_consumer_group"`
+
+	// RetryAttempt 是业务消费者当前重试次数。
+	RetryAttempt uint32 `gorm:"not null;default:0;column:retry_times"`
 }
 
 // TableName 显式指定延迟任务表名。

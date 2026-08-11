@@ -5,11 +5,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"GopherAI/internal/domain/delay"
+	messageDomain "GopherAI/internal/domain/message"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -29,7 +31,10 @@ var _ delay.DelayTaskRepository = (*DelayTaskRepository)(nil)
 // Create 幂等创建任务。created 仅在本次调用新建记录时为 true；
 // 相同 ID 和相同内容返回已有任务，相同 ID 但内容不同返回 ErrConflict。
 func (r *DelayTaskRepository) Create(ctx context.Context, task delay.Task) (stored delay.Task, created bool, err error) {
-	po := delayTaskToPO(task)
+	po, err := delayTaskToPO(task)
+	if err != nil {
+		return delay.Task{}, false, err
+	}
 
 	// 唯一键冲突时保留原记录，再通过任务哈希区分幂等重试和内容冲突。
 	result := r.db.WithContext(ctx).
@@ -39,7 +44,8 @@ func (r *DelayTaskRepository) Create(ctx context.Context, task delay.Task) (stor
 		return delay.Task{}, false, result.Error
 	}
 	if result.RowsAffected == 1 {
-		return delayTaskToDomain(po), true, nil
+		stored, err := delayTaskToDomain(po)
+		return stored, true, err
 	}
 	if result.RowsAffected != 0 {
 		return delay.Task{}, false, fmt.Errorf("create delay task: unexpected rows affected: %d", result.RowsAffected)
@@ -58,11 +64,13 @@ func (r *DelayTaskRepository) Create(ctx context.Context, task delay.Task) (stor
 	if existing.AccountNo != po.AccountNo || !compareTaskHash(existing, po) {
 		return delay.Task{}, false, delay.ErrConflict
 	}
-	return delayTaskToDomain(existing), false, nil
+	stored, err = delayTaskToDomain(existing)
+	return stored, false, err
 }
 
 // Get 按账号和任务 ID 查询任务，accountNo 同时承担数据归属校验。
-func (r *DelayTaskRepository) Get(ctx context.Context, accountNo string, taskID string) (delay.Task, error) {
+func (r *DelayTaskRepository) Get(ctx context.Context, accountNo string,
+	taskID string) (delay.Task, error) {
 	var po DelayTaskPO
 	// account_no 参与查询，避免仅凭任务 ID 读取其他账号的数据。
 	err := r.db.WithContext(ctx).
@@ -75,7 +83,7 @@ func (r *DelayTaskRepository) Get(ctx context.Context, accountNo string, taskID 
 	if err != nil {
 		return delay.Task{}, err
 	}
-	return delayTaskToDomain(po), nil
+	return delayTaskToDomain(po)
 }
 
 // ClaimDue 批量抢占 target time 不晚于 ahead 的待调度任务，并为其设置 owner 和 leaseUntil。
@@ -139,7 +147,11 @@ func (r *DelayTaskRepository) ClaimDue(ctx context.Context, now time.Time, ahead
 		for i := range pos {
 			pos[i].Status = uint8(delay.StatusDispatching)
 			pos[i].Version++
-			claimed[i] = delayTaskToDomain(pos[i])
+			task, err := delayTaskToDomain(pos[i])
+			if err != nil {
+				return err
+			}
+			claimed[i] = task
 		}
 		return nil
 	})
@@ -270,7 +282,12 @@ func (r *DelayTaskRepository) Cancel(ctx context.Context, accountNo string, task
 // === 以下是辅助函数 ===
 
 // hashTask 计算不可变任务内容的 SHA-256，用于判断创建请求是否为幂等重试。
-func hashTask(task delay.Task) []byte {
+func hashTask(task delay.Task) ([]byte, error) {
+	headers, err := encodeMessageHeaders(task.Message.Headers)
+	if err != nil {
+		return nil, fmt.Errorf("encode message headers for hash: %w", err)
+	}
+
 	h := sha256.New()
 
 	writeHashPart := func(value []byte) {
@@ -280,18 +297,23 @@ func hashTask(task delay.Task) []byte {
 		_, _ = h.Write(value)
 	}
 
-	writeHashPart([]byte(task.Destination))
+	writeUint64 := func(value uint64) {
+		var encoded [8]byte
+		binary.BigEndian.PutUint64(encoded[:], value)
+		_, _ = h.Write(encoded[:])
+	}
 
-	var targetAt [8]byte
-	binary.BigEndian.PutUint64(
-		targetAt[:],
-		uint64(task.TargetAt),
-	)
-	_, _ = h.Write(targetAt[:])
+	writeHashPart([]byte(task.Message.ID))
+	writeHashPart([]byte(task.Message.Topic))
+	writeHashPart(headers)
+	writeHashPart(task.Message.Body)
+	writeUint64(uint64(task.Message.Timestamp.UnixMilli()))
+	writeUint64(uint64(task.Target.Kind))
+	writeHashPart([]byte(task.Target.ConsumerGroup))
+	writeUint64(uint64(task.RetryAttempt))
+	writeUint64(uint64(task.TargetAt))
 
-	writeHashPart(task.Payload)
-
-	return h.Sum(nil)
+	return h.Sum(nil), nil
 }
 
 // compareTaskHash 比较数据库记录和新任务的规范化内容哈希。
@@ -299,31 +321,83 @@ func compareTaskHash(storedTask DelayTaskPO, newTask DelayTaskPO) bool {
 	return bytes.Equal(storedTask.TaskHash, newTask.TaskHash)
 }
 
-// delayTaskToPO 将领域任务转换为只在持久化层使用的 GORM 对象。
-func delayTaskToPO(task delay.Task) DelayTaskPO {
-	return DelayTaskPO{
-		ID:          task.ID,
-		AccountNo:   task.AccountNo,
-		Destination: task.Destination,
-		TargetAt:    task.TargetAt,
-		Payload:     append([]byte(nil), task.Payload...),
-		TaskHash:    hashTask(task),
-		Version:     task.Version,
-		Status:      uint8(task.Status),
+// delayTaskToPO 将领域任务无损展开为持久化对象。
+func delayTaskToPO(task delay.Task) (DelayTaskPO, error) {
+	headers, err := encodeMessageHeaders(task.Message.Headers)
+	if err != nil {
+		return DelayTaskPO{}, fmt.Errorf("encode message headers: %w", err)
 	}
+	taskHash, err := hashTask(task)
+	if err != nil {
+		return DelayTaskPO{}, err
+	}
+
+	return DelayTaskPO{
+		ID:                  task.ID,
+		AccountNo:           task.AccountNo,
+		TargetAt:            task.TargetAt,
+		Version:             task.Version,
+		Status:              uint8(task.Status),
+		TaskHash:            taskHash,
+		MessageID:           task.Message.ID,
+		MessageTopic:        task.Message.Topic,
+		MessageHeaders:      headers,
+		MessageBody:         bytes.Clone(task.Message.Body),
+		MessageTimestampMs:  task.Message.Timestamp.UnixMilli(),
+		TargetKind:          uint8(task.Target.Kind),
+		TargetConsumerGroup: task.Target.ConsumerGroup,
+		RetryAttempt:        task.RetryAttempt,
+	}, nil
 }
 
-// delayTaskToDomain 将数据库记录转换为不包含 GORM 细节的领域任务。
-func delayTaskToDomain(po DelayTaskPO) delay.Task {
-	return delay.Task{
-		ID:          po.ID,
-		AccountNo:   po.AccountNo,
-		Destination: po.Destination,
-		TargetAt:    po.TargetAt,
-		Payload:     append([]byte(nil), po.Payload...),
-		Version:     po.Version,
-		Status:      delay.Status(po.Status),
+// delayTaskToDomain 从持久化对象恢复并校验领域任务。
+func delayTaskToDomain(po DelayTaskPO) (delay.Task, error) {
+	headers, err := decodeMessageHeaders(po.MessageHeaders)
+	if err != nil {
+		return delay.Task{}, fmt.Errorf("decode message headers for delay task %q: %w", po.ID, err)
 	}
+	message, err := messageDomain.New(
+		po.MessageID,
+		po.MessageTopic,
+		headers,
+		po.MessageBody,
+		time.UnixMilli(po.MessageTimestampMs),
+	)
+	if err != nil {
+		return delay.Task{}, fmt.Errorf("restore message for delay task %q: %w", po.ID, err)
+	}
+
+	var target messageDomain.Target
+	switch messageDomain.TargetKind(po.TargetKind) {
+	case messageDomain.TargetTopic:
+		target = messageDomain.TopicTarget()
+	case messageDomain.TargetConsumerGroup:
+		target, err = messageDomain.ConsumerGroupTarget(po.TargetConsumerGroup)
+		if err != nil {
+			return delay.Task{}, fmt.Errorf("restore target for delay task %q: %w", po.ID, err)
+		}
+	default:
+		return delay.Task{}, fmt.Errorf(
+			"restore target for delay task %q: invalid target kind %d",
+			po.ID,
+			po.TargetKind,
+		)
+	}
+
+	task, err := delay.RestoreTask(
+		po.ID,
+		po.AccountNo,
+		message,
+		target,
+		po.RetryAttempt,
+		po.TargetAt,
+		po.Version,
+		delay.Status(po.Status),
+	)
+	if err != nil {
+		return delay.Task{}, fmt.Errorf("restore delay task %q: %w", po.ID, err)
+	}
+	return task, nil
 }
 
 // getByID 查询状态转换失败后的当前记录，并把未命中翻译为领域错误。
@@ -350,4 +424,25 @@ func errorSummary(cause error) string {
 		runes = runes[:maxRunes]
 	}
 	return string(runes)
+}
+
+func encodeMessageHeaders(headers map[string]string) ([]byte, error) {
+	if headers == nil {
+		headers = map[string]string{}
+	}
+	return json.Marshal(headers)
+}
+
+func decodeMessageHeaders(data []byte) (map[string]string, error) {
+	if len(data) == 0 {
+		return map[string]string{}, nil
+	}
+	var headers map[string]string
+	if err := json.Unmarshal(data, &headers); err != nil {
+		return nil, err
+	}
+	if headers == nil {
+		headers = map[string]string{}
+	}
+	return headers, nil
 }

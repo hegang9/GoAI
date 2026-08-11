@@ -56,7 +56,7 @@ func (m Message) Validate() error {
 	}
 }
 
-// Clone 返回不共享 Headers 和 Body 底层数据的消息副本。
+// Clone 返回不共享 Headers 和 Body 底层数据的消息副本，深拷贝。
 func (m Message) Clone() Message {
 	m.Headers = maps.Clone(m.Headers)
 	m.Body = bytes.Clone(m.Body)

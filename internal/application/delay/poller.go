@@ -1,6 +1,8 @@
 // Package delay 编排延迟任务用例，不直接依赖 GORM、RabbitMQ SDK 或 HTTP 框架。
 package delay
 
+// 延迟任务轮询器，职责是将MySQL中即将到期的长延迟任务转交给 level MQ
+
 import (
 	"context"
 	"errors"

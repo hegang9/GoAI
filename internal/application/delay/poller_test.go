@@ -8,6 +8,7 @@ import (
 	"time"
 
 	domaindelay "GopherAI/internal/domain/delay"
+	domainmessage "GopherAI/internal/domain/message"
 )
 
 func TestPollerPollOnceMarksConfirmedTask(t *testing.T) {
@@ -233,12 +234,18 @@ func newTestPoller(t *testing.T, now time.Time, repo domaindelay.DelayTaskReposi
 
 func delayTaskForPoller(id string, targetAt time.Time) domaindelay.Task {
 	return domaindelay.Task{
-		ID:          id,
-		AccountNo:   "account-1",
-		Destination: "notification",
-		TargetAt:    targetAt.UnixMilli(),
-		Payload:     []byte(`{"message":"hello"}`),
-		Version:     2,
-		Status:      domaindelay.StatusDispatching,
+		ID:        id,
+		AccountNo: "account-1",
+		Message: domainmessage.Message{
+			ID:        "message-" + id,
+			Topic:     "notification.created.v1",
+			Headers:   map[string]string{},
+			Body:      []byte(`{"message":"hello"}`),
+			Timestamp: targetAt.Add(-time.Second),
+		},
+		Target:   domainmessage.TopicTarget(),
+		TargetAt: targetAt.UnixMilli(),
+		Version:  2,
+		Status:   domaindelay.StatusDispatching,
 	}
 }

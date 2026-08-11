@@ -189,6 +189,10 @@ RabbitMQ 包的单元测试覆盖错误分类、重试 Header 解析、档位边
 
 延迟领域模型区分调度标识与业务消息标识：`delay.Task.ID` 是一次延迟调度的 `schedule_id`，`message.Message.ID` 是跨消费者组重试保持不变的 `message_id`。任务只保存规范化后的业务 `Message`、逻辑投递 `Target`、重试次数和绝对目标时间，不再重复保存 destination/payload；`TargetTopic` 表示发布到消息原 Topic，`TargetConsumerGroup` 表示精确回投消费者组，领域层不包含 Exchange、Queue 或 AMQP 类型。
 
+持久化层将 Message、Target 和重试次数展开为 `DelayTaskPO` 字段，Headers 使用 JSON 保存；PO 恢复领域对象时统一通过领域构造函数校验，非法 JSON、目标类型或任务状态会作为错误返回，不会静默生成无效任务。
+
+重试计数区分两种语义：`RetryAttempt` 表示业务消息当前消费重试次数，`DispatchAttempts` 表示 Poller 抢占任务并尝试转交 Level MQ 的累计次数；数据库暂时沿用 `retry_times`、`attempts` 列名以避免无必要迁移。
+
 延迟任务仓储使用 MySQL 持久化小时到天级等待任务：`pending` 表示 MySQL 持有任务，Poller 通过短事务和 `FOR UPDATE SKIP LOCKED` 批量抢占到期任务，并写入 `lease_owner`、`lease_until_ms` 后进入 `dispatching`。租约让多实例不会同时处理同一条记录，也让进程崩溃后可由其他实例在租约到期后恢复任务；每次抢占和状态转换都会递增 `version`，用于拒绝上一轮投递的迟到回调。
 
 Poller 在事务提交后才向 Level MQ 发布。只有收到 RabbitMQ Broker confirm 才调用 `MarkLevelQueued`，把任务标记为 `level_queued` 并确认 MQ 已接管；明确收到 NACK 或发送前失败时调用 `Release` 回到 `pending`。发布结果未知时不释放租约，等待过期后使用相同任务 ID 重投，以 at-least-once 的重复换取不丢失。`Cancel` 仅允许按预期版本取消仍处于 `pending` 的任务。

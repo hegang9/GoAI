@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"GopherAI/internal/domain/delay"
+	domainmessage "GopherAI/internal/domain/message"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/mysql"
@@ -22,14 +23,26 @@ func TestDelayTaskRepositoryCreate(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	task := delay.Task{
-		ID:          "task-create",
-		AccountNo:   "account-1",
-		Destination: "notification",
-		TargetAt:    time.Now().Add(time.Hour).UnixMilli(),
-		Payload:     []byte(`{"message":"hello"}`),
-		Version:     1,
-		Status:      delay.StatusPending,
+	message, err := domainmessage.New(
+		"message-create",
+		"notification.created.v1",
+		map[string]string{},
+		[]byte(`{"message":"hello"}`),
+		time.Now().UTC(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := delay.NewTask(
+		"task-create",
+		"account-1",
+		message,
+		domainmessage.TopicTarget(),
+		0,
+		time.Now().Add(time.Hour).UnixMilli(),
+	)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	stored, created, err := repo.Create(context.Background(), task)
@@ -55,9 +68,13 @@ func TestDelayTaskRepositoryClaimDue(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT \\* FROM `delay_tasks`.*FOR UPDATE SKIP LOCKED").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_no", "destination", "target_at", "payload", "version", "status",
+			"id", "account_no", "target_at", "version", "status",
+			"message_id", "message_topic", "message_headers", "message_body", "message_timestamp_ms",
+			"target_kind", "target_consumer_group", "retry_times",
 		}).AddRow(
-			"task-due", "account-1", "notification", now.UnixMilli(), []byte("payload"), int64(1), uint8(delay.StatusPending),
+			"task-due", "account-1", now.UnixMilli(), int64(1), uint8(delay.StatusPending),
+			"message-due", "notification.created.v1", []byte("{}"), []byte("payload"), now.Add(-time.Second).UnixMilli(),
+			uint8(domainmessage.TargetTopic), "", uint32(0),
 		))
 	mock.ExpectExec("UPDATE `delay_tasks` SET .*WHERE id IN").
 		WillReturnResult(sqlmock.NewResult(0, 1))

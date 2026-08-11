@@ -36,8 +36,8 @@ type Task struct {
 	AccountNo string
 	Message   messageDomain.Message
 	Target    messageDomain.Target
-	// Attempt 为 0 表示普通 Topic 投递，大于 0 表示消费者组重试次数。
-	Attempt uint32
+	// RetryAttempt 为 0 表示普通 Topic 投递，大于 0 表示业务消费者重试次数。
+	RetryAttempt uint32
 	// TargetAt 是 UTC Unix 毫秒绝对目标时间。
 	TargetAt int64
 	Version  int64
@@ -50,10 +50,10 @@ func NewTask(
 	accountNo string,
 	message messageDomain.Message,
 	target messageDomain.Target,
-	attempt uint32,
+	retryAttempt uint32,
 	targetAt int64,
 ) (Task, error) {
-	return newTask(id, accountNo, message, target, attempt, targetAt, 1, StatusPending)
+	return newTask(id, accountNo, message, target, retryAttempt, targetAt, 1, StatusPending)
 }
 
 // RestoreTask 从持久化数据恢复任务，并校验持久化状态是否合法。
@@ -62,12 +62,12 @@ func RestoreTask(
 	accountNo string,
 	message messageDomain.Message,
 	target messageDomain.Target,
-	attempt uint32,
+	retryAttempt uint32,
 	targetAt int64,
 	version int64,
 	status Status,
 ) (Task, error) {
-	return newTask(id, accountNo, message, target, attempt, targetAt, version, status)
+	return newTask(id, accountNo, message, target, retryAttempt, targetAt, version, status)
 }
 
 func newTask(
@@ -75,20 +75,20 @@ func newTask(
 	accountNo string,
 	message messageDomain.Message,
 	target messageDomain.Target,
-	attempt uint32,
+	retryAttempt uint32,
 	targetAt int64,
 	version int64,
 	status Status,
 ) (Task, error) {
 	task := Task{
-		ID:        id,
-		AccountNo: accountNo,
-		Message:   message.Clone(),
-		Target:    target,
-		Attempt:   attempt,
-		TargetAt:  targetAt,
-		Version:   version,
-		Status:    status,
+		ID:           id,
+		AccountNo:    accountNo,
+		Message:      message.Clone(),
+		Target:       target,
+		RetryAttempt: retryAttempt,
+		TargetAt:     targetAt,
+		Version:      version,
+		Status:       status,
 	}
 	if err := task.validate(); err != nil {
 		return Task{}, err
@@ -117,11 +117,11 @@ func (t Task) validate() error {
 	}
 	switch t.Target.Kind {
 	case messageDomain.TargetTopic:
-		if t.Attempt != 0 {
+		if t.RetryAttempt != 0 {
 			return fmt.Errorf("%w: topic target cannot have retry attempt", ErrInvalidTask)
 		}
 	case messageDomain.TargetConsumerGroup:
-		if t.Attempt == 0 {
+		if t.RetryAttempt == 0 {
 			return fmt.Errorf("%w: consumer group target requires retry attempt", ErrInvalidTask)
 		}
 	}
