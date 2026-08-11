@@ -1,36 +1,129 @@
 package delay
 
+import (
+	"errors"
+	"fmt"
+	"strings"
+
+	messageDomain "GopherAI/internal/domain/message"
+)
+
+var ErrInvalidTask = errors.New("invalid delay task")
+
 // Status 表示延迟任务在持久化等待和 Level MQ 转交阶段的生命周期状态。
 // 它只描述领域状态，不暴露数据库字段值或消息队列实现细节。
 type Status uint8
 
 const (
 	// StatusPending 表示任务仍由持久化存储持有，等待 Poller 抢占并投递到 Level MQ。
-	StatusPending Status = iota + 1
+	StatusPending Status = 1
 	// StatusLevelQueued 表示 Level MQ 已确认接管任务，持久化记录仅用于查询和审计。
-	StatusLevelQueued
+	StatusLevelQueued Status = 2
 	// StatusDispatching 表示任务已被 Poller 租约抢占，正在向 Level MQ 转交所有权。
-	StatusDispatching
+	StatusDispatching Status = 3
 	// StatusCancelled 表示任务在允许取消的阶段被终止，不应继续向目标 MQ 投递。
-	StatusCancelled
+	StatusCancelled Status = 4
 )
 
-// Task 是延迟链路中的稳定任务模型。
-// 同一任务经过持久化存储、Level MQ、Dispatcher 和目标 MQ 时必须保持相同的 ID 和 TargetAt，
-// 以便在 ACK 丢失或进程重启导致重复投递时执行幂等判断。
+func (s Status) valid() bool {
+	return s >= StatusPending && s <= StatusCancelled
+}
+
+// Task 描述在指定时间把稳定业务消息投递到逻辑目标的一次调度。
 type Task struct {
-	// ID 是全链路唯一幂等标识，重试和重新调度时不得重新生成。
-	ID string
-	// AccountNo 标识任务所属账号，用于数据隔离和权限校验。
+	// ID 是 schedule_id，同一消费者组的同一次重试必须保持不变。
+	ID        string
 	AccountNo string
-	// Destination 是目标逻辑名称，由基础设施适配器映射到受控的最终消息路由。
-	Destination string
-	// TargetAt 是 UTC Unix 毫秒绝对目标时间；进入各级延迟链路后不得按接收时间重新计算。
+	Message   messageDomain.Message
+	Target    messageDomain.Target
+	// Attempt 为 0 表示普通 Topic 投递，大于 0 表示消费者组重试次数。
+	Attempt uint32
+	// TargetAt 是 UTC Unix 毫秒绝对目标时间。
 	TargetAt int64
-	// Payload 是需要在目标时间投递的原始业务载荷，任务创建后应保持不可变。
-	Payload []byte
-	// Version 用于状态转换和取消操作的乐观并发控制。
-	Version int64
-	// Status 是任务当前生命周期状态。
-	Status Status
+	Version  int64
+	Status   Status
+}
+
+// NewTask 创建处于 Pending、版本为 1 的新调度任务。
+func NewTask(
+	id string,
+	accountNo string,
+	message messageDomain.Message,
+	target messageDomain.Target,
+	attempt uint32,
+	targetAt int64,
+) (Task, error) {
+	return newTask(id, accountNo, message, target, attempt, targetAt, 1, StatusPending)
+}
+
+// RestoreTask 从持久化数据恢复任务，并校验持久化状态是否合法。
+func RestoreTask(
+	id string,
+	accountNo string,
+	message messageDomain.Message,
+	target messageDomain.Target,
+	attempt uint32,
+	targetAt int64,
+	version int64,
+	status Status,
+) (Task, error) {
+	return newTask(id, accountNo, message, target, attempt, targetAt, version, status)
+}
+
+func newTask(
+	id string,
+	accountNo string,
+	message messageDomain.Message,
+	target messageDomain.Target,
+	attempt uint32,
+	targetAt int64,
+	version int64,
+	status Status,
+) (Task, error) {
+	task := Task{
+		ID:        id,
+		AccountNo: accountNo,
+		Message:   message.Clone(),
+		Target:    target,
+		Attempt:   attempt,
+		TargetAt:  targetAt,
+		Version:   version,
+		Status:    status,
+	}
+	if err := task.validate(); err != nil {
+		return Task{}, err
+	}
+	return task, nil
+}
+
+func (t Task) validate() error {
+	switch {
+	case strings.TrimSpace(t.ID) == "":
+		return fmt.Errorf("%w: schedule id is empty", ErrInvalidTask)
+	case strings.TrimSpace(t.AccountNo) == "":
+		return fmt.Errorf("%w: account number is empty", ErrInvalidTask)
+	case t.TargetAt <= 0:
+		return fmt.Errorf("%w: target time must be positive", ErrInvalidTask)
+	case t.Version <= 0:
+		return fmt.Errorf("%w: version must be positive", ErrInvalidTask)
+	case !t.Status.valid():
+		return fmt.Errorf("%w: status %d is invalid", ErrInvalidTask, t.Status)
+	}
+	if err := t.Message.Validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidTask, err)
+	}
+	if err := t.Target.Validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidTask, err)
+	}
+	switch t.Target.Kind {
+	case messageDomain.TargetTopic:
+		if t.Attempt != 0 {
+			return fmt.Errorf("%w: topic target cannot have retry attempt", ErrInvalidTask)
+		}
+	case messageDomain.TargetConsumerGroup:
+		if t.Attempt == 0 {
+			return fmt.Errorf("%w: consumer group target requires retry attempt", ErrInvalidTask)
+		}
+	}
+	return nil
 }

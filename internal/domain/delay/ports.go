@@ -36,6 +36,6 @@ type LevelPublisher interface {
 // FinalPublisher 将成熟任务直接投递到最终业务消息通道。
 // Publish 返回 nil 表示目标消息系统已经确认接管，调用方随后才可以 ACK Dispatcher Inbox 原消息。
 type FinalPublisher interface {
-	// Publish 将任务发送到受控的逻辑 destination，并保留 Task.ID 作为最终消息幂等键。
-	Publish(ctx context.Context, destination string, task Task) error
+	// Publish 根据 Task.Target 选择 Topic 或消费者组回投，并以 Task.Message.ID 作为业务幂等键。
+	Publish(ctx context.Context, task Task) error
 }
