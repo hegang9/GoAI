@@ -191,6 +191,8 @@ RabbitMQ 包的单元测试覆盖错误分类、重试 Header 解析、档位边
 
 Poller 在事务提交后才向 Level MQ 发布。只有收到 RabbitMQ Broker confirm 才调用 `MarkLevelQueued`，把任务标记为 `level_queued` 并确认 MQ 已接管；明确收到 NACK 或发送前失败时调用 `Release` 回到 `pending`。发布结果未知时不释放租约，等待过期后使用相同任务 ID 重投，以 at-least-once 的重复换取不丢失。`Cancel` 仅允许按预期版本取消仍处于 `pending` 的任务。
 
+应用层 `internal/application/delay.Poller` 默认每 200ms 提前扫描未来 10 秒内的任务，使用固定 worker 数在 MySQL 抢占事务提交后并发发布 Level MQ。任务按剩余毫秒向下取整选择 Level 0～10；Level Publisher 只有明确返回 `PublishRejectedError` 时 Poller 才释放租约，confirm 超时、连接中断或数据库状态回写失败均保留租约等待恢复。
+
 `[chatReplayConfig]` 示例：
 
 ```toml
