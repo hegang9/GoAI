@@ -210,5 +210,40 @@ func declareLevelQueue(ch *amqp.Channel, config DelayConfig) error {
 }
 
 // 声明dispatcher inbox
+func declareDispatcherInbox(ch *amqp.Channel, config DelayConfig) error {
+	if err := validateDelayConfig(config); err != nil {
+		return err
+	}
+	if _, err := ch.QueueDeclare(
+		config.DispatcherQueue,
+		true,
+		false,
+		false,
+		false,
+		amqp.Table{
+			"x-queue-type": "quorum",
+		},
+	); err != nil {
+		return fmt.Errorf(
+			"declare dispatcher queue %q: %w",
+			config.DispatcherQueue,
+			err,
+		)
+	}
+	if err := ch.QueueBind(
+		config.DispatcherQueue,
+		config.DispatcherRoutingKey,
+		config.DispatcherExchange,
+		false,
+		nil,
+	); err != nil {
+		return fmt.Errorf(
+			"bind dispatcher queue %q: %w",
+			config.DispatcherQueue,
+			err,
+		)
+	}
+	return nil
+}
 
 // Level Publisher 将 MySQL 的长延迟任务转交给 Level MQ
