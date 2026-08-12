@@ -60,14 +60,21 @@ func DefaultDelayServiceConfig() DelayServiceConfig {
 
 // DelayService 统一创建普通延迟和消费重试任务，并完成长短延迟分流。
 type DelayService struct {
-	repo      delayDomain.DelayTaskRepository
+	// repo 负责可靠持有超过 shortThreshold 的长延迟任务。
+	repo delayDomain.DelayTaskRepository
+	// publisher 负责把短延迟任务可靠发布到 Level 0～maxLevel。
 	publisher delayDomain.LevelPublisher
-	clock     Clock
+	// clock 提供可替换的当前时间，确保边界计算可以被确定性测试。
+	clock Clock
 
+	// shortThreshold 是 Level MQ 与 MySQL 的长短延迟分界。
 	shortThreshold time.Duration
-	maxDelay       time.Duration
-	maxLevel       int
-	retryPolicies  map[string]RetryPolicy
+	// maxDelay 是单个任务允许设置的最大延迟。
+	maxDelay time.Duration
+	// maxLevel 是由 shortThreshold 推导出的最大整秒 Level。
+	maxLevel int
+	// retryPolicies 保存各 consumer group 的静态重试间隔。
+	retryPolicies map[string]RetryPolicy
 }
 
 // NewDelayService 创建统一延迟调度服务，并在启动阶段拒绝不合法配置。

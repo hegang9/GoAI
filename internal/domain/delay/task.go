@@ -90,13 +90,13 @@ func newTask(
 		Version:      version,
 		Status:       status,
 	}
-	if err := task.validate(); err != nil {
+	if err := task.Validate(); err != nil {
 		return Task{}, err
 	}
 	return task, nil
 }
 
-func (t Task) validate() error {
+func (t Task) Validate() error {
 	switch {
 	case strings.TrimSpace(t.ID) == "":
 		return fmt.Errorf("%w: schedule id is empty", ErrInvalidTask)
