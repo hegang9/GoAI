@@ -3,8 +3,10 @@ package rabbitmq
 import (
 	taskDomain "GopherAI/internal/domain/delay"
 	messageDomain "GopherAI/internal/domain/message"
+	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -150,7 +152,7 @@ func declareLevelExchange(ch *amqp.Channel, config DelayConfig) error {
 	} {
 		if err := ch.ExchangeDeclare(
 			exchange,
-			"dirict",
+			"direct",
 			true,
 			false,
 			false,
@@ -246,4 +248,102 @@ func declareDispatcherInbox(ch *amqp.Channel, config DelayConfig) error {
 	return nil
 }
 
+func declareDelayTopology(ch *amqp.Channel, config DelayConfig) error {
+	if err := declareLevelExchange(ch, config); err != nil {
+		return err
+	}
+	if err := declareDispatcherInbox(ch, config); err != nil {
+		return err
+	}
+	if err := declareLevelQueue(ch, config); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Level Publisher 将 MySQL 的长延迟任务转交给 Level MQ
+type LevelPublisher struct {
+	// 使用独立channel，避免与业务channel竞争锁
+	channel *amqp.Channel
+	returns <-chan amqp.Return
+	mu      sync.Mutex
+	config  DelayConfig
+}
+
+var _ taskDomain.LevelPublisher = (*LevelPublisher)(nil)
+
+func NewLevelPublisher(client *Client, config DelayConfig) (*LevelPublisher, error) {
+	if client == nil || client.conn == nil {
+		return nil, errors.New("new level publisher: rabbitmq client is nil")
+	}
+
+	if err := validateDelayConfig(config); err != nil {
+		return nil, err
+	}
+
+	// 用于声明 Delay 拓扑的临时channel
+	topologyChannel, err := client.conn.Channel()
+	if err != nil {
+		return nil, fmt.Errorf("open delay topology channel: %w", err)
+	}
+
+	if err := declareDelayTopology(topologyChannel, config); err != nil {
+		_ = topologyChannel.Close()
+		return nil, fmt.Errorf("declare delay topology: %w", err)
+	}
+	if err := topologyChannel.Close(); err != nil {
+		return nil, fmt.Errorf(
+			"close delay topology channel: %w",
+			err,
+		)
+	}
+
+	publishChannel, err := client.conn.Channel()
+	if err != nil {
+		return nil, fmt.Errorf("open delay publish channel: %w", err)
+	}
+
+	// 启动发布确认，每条发布消息都收到 Broker 的 ACK/NACK。false（noWait参数）表示等待 confirm.select-ok 生效，不使用 no-wait
+	// 确保在开始发布前 Channel 已经进入 confirm 模式
+	if err := publishChannel.Confirm(false); err != nil {
+		_ = publishChannel.Close()
+		return nil, fmt.Errorf(
+			"enable level publisher confirm: %w",
+			err,
+		)
+	}
+	// 监听 mandatory 消息无法路由时，Broker 通过此通道返回 basic.return，此通道是公共的。
+	// 缓冲为1是因为当前 LevelPublisher 使用 mutex 串行发布，任意时刻最多处理一条 confirmed message。
+	returns := publishChannel.NotifyReturn(make(chan amqp.Return, 1))
+
+	return &LevelPublisher{
+		channel: publishChannel,
+		returns: returns,
+		config:  config,
+	}, nil
+}
+
+func (p *LevelPublisher) Publish(ctx context.Context, level int, task taskDomain.Task) error {
+	if level < 0 || level > p.config.MaxLevel {
+		return taskDomain.NewPublishRejectedError(fmt.Errorf(
+			"invalid level %d: must be in 0..%d", level, p.config.MaxLevel))
+	}
+
+	return nil
+}
+
+func (p *LevelPublisher) Close() error {
+	if p == nil || p.channel == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.channel == nil {
+		return nil
+	}
+	if err := p.channel.Close(); err != nil {
+		return fmt.Errorf("close delay publish channel: %w", err)
+	}
+	p.channel = nil
+	return nil
+}
