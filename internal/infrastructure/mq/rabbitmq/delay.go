@@ -4,6 +4,7 @@ import (
 	taskDomain "GopherAI/internal/domain/delay"
 	messageDomain "GopherAI/internal/domain/message"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -211,7 +212,7 @@ func declareLevelQueue(ch *amqp.Channel, config DelayConfig) error {
 	return nil
 }
 
-// 声明dispatcher inbox
+// 声明 dispatcher inbox
 func declareDispatcherInbox(ch *amqp.Channel, config DelayConfig) error {
 	if err := validateDelayConfig(config); err != nil {
 		return err
@@ -323,17 +324,181 @@ func NewLevelPublisher(client *Client, config DelayConfig) (*LevelPublisher, err
 	}, nil
 }
 
+// Publish 将延迟任务可靠转交给指定 Level；Level 0 会绕过 TTL Queue，直接进入 Dispatcher Inbox。
+//
+// 返回值同时表达消息所有权是否已经转移：
+//   - nil：Broker 已 ACK，且 mandatory publish 未被退回，Poller 可以调用 MarkLevelQueued；
+//   - PublishRejectedError：发布前校验失败、Broker NACK 或 mandatory return，确认下游未接管，
+//     Poller 可以安全调用 Release 释放 MySQL 租约；
+//   - 其他 error：发送或 confirm 结果未知，消息可能已经进入 Broker，Poller 必须保留租约等待恢复，
+//     不能立即 Release，否则可能造成重复的并发所有者。
+//
+// 同一个 AMQP Channel 的 deferred confirm 和 basic.return 必须与当前消息一一对应，
+// 因此本方法使用互斥锁串行发布，并把编码、路由等发布前错误与发布后的不确定错误严格分开。
 func (p *LevelPublisher) Publish(ctx context.Context, level int, task taskDomain.Task) error {
+	// 以下校验都发生在调用 AMQP Publish 之前，失败时可以确认 Broker 尚未接管消息。
+	if p == nil {
+		return taskDomain.NewPublishRejectedError(
+			errors.New("level publisher is nil"))
+	}
+	if ctx == nil {
+		return taskDomain.NewPublishRejectedError(
+			errors.New("context is nil"))
+	}
 	if level < 0 || level > p.config.MaxLevel {
 		return taskDomain.NewPublishRejectedError(fmt.Errorf(
 			"invalid level %d: must be in 0..%d", level, p.config.MaxLevel))
 	}
 
-	return nil
+	// 领域校验与 Envelope 编码失败时消息尚未发送，属于明确未接管。
+	envelope, err := encodeTask(task)
+	if err != nil {
+		return taskDomain.NewPublishRejectedError(fmt.Errorf(
+			"encode delay task %q: %w",
+			task.ID,
+			err))
+	}
+
+	// JSON 序列化同样发生在发布前，失败时 Poller 可以安全释放租约。
+	body, err := json.Marshal(envelope)
+	if err != nil {
+		return taskDomain.NewPublishRejectedError(fmt.Errorf(
+			"marshal delay task %q: %w",
+			task.ID,
+			err))
+	}
+
+	exchange := p.config.LevelExchange
+	routingKey := levelRoutingKey(p.config, level)
+
+	// Level 0 没有对应的 TTL Queue，已经到期或不足一秒的任务直接进入 Dispatcher Inbox。
+	if level == 0 {
+		exchange = p.config.DispatcherExchange
+		routingKey = p.config.DispatcherRoutingKey
+	}
+
+	// 延迟 Envelope 使用 schedule ID 作为 AMQP message_id；业务 message_id 保留在 Envelope 内。
+	// 消息不设置 per-message TTL，实际延迟完全由对应 Level Queue 的固定 TTL 决定。
+	message := amqp.Publishing{
+		ContentType:  "application/json",
+		DeliveryMode: amqp.Persistent,
+		MessageId:    envelope.TaskID,
+		Type:         "goai.delay.task.v1",
+		Timestamp:    time.Now().UTC(),
+		Body:         body,
+	}
+
+	// 同一个 Channel 的 confirm 和 mandatory return 必须串行关联。因为 basic.return 是公共的，多个 goroutine 都可以从同一个 p.returns 中读取
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// 等锁期间调用方可能已经取消，此时尚未发布，可以安全视为明确未接管。
+	if err := ctx.Err(); err != nil {
+		return taskDomain.NewPublishRejectedError(fmt.Errorf(
+			"publish delay task %q cancelled before publish: %w",
+			task.ID,
+			err,
+		))
+	}
+
+	if p.channel == nil || p.channel.IsClosed() {
+		// 尚未调用 Publish，Channel 不可用仍属于明确未接管。
+		return taskDomain.NewPublishRejectedError(
+			errors.New("delay publish channel is unavailable"),
+		)
+	}
+	if p.returns == nil {
+		// 缺少 return 监听器时无法执行 mandatory 发布，但此时消息尚未发送。
+		return taskDomain.NewPublishRejectedError(
+			errors.New("delay return listener is unavailable"),
+		)
+	}
+
+	// 清理上一条结果未知消息可能迟到的 basic.return。
+	if err := discardStaleReturns(p.returns); err != nil {
+		return taskDomain.NewPublishRejectedError(fmt.Errorf(
+			"prepare delay publish return listener: %w",
+			err,
+		))
+	}
+
+	// ConfirmTimeout 只限制当前消息等待 Broker confirm 的时间；超时不等于 Broker 未收到。
+	publishCtx, cancel := context.WithTimeout(
+		ctx,
+		p.config.ConfirmTimeout,
+	)
+	defer cancel()
+
+	confirmation, err := p.channel.PublishWithDeferredConfirmWithContext(
+		publishCtx,
+		exchange,
+		routingKey,
+		true,  // mandatory
+		false, // immediate
+		message,
+	)
+	if err != nil {
+		// amqp091-go 明确说明：Publish 返回错误不代表 Broker 一定没收到。
+		// 因此这里必须保留为“结果未知”，不能包装 PublishRejectedError。
+		return fmt.Errorf(
+			"publish delay task %q to level %d has unknown outcome: %w",
+			task.ID,
+			level,
+			err,
+		)
+	}
+	if confirmation == nil {
+		// 消息可能已经发出，只是 Channel 没有正确进入 confirm 模式。
+		return fmt.Errorf(
+			"publish delay task %q has unknown outcome: publisher confirm is unavailable",
+			task.ID,
+		)
+	}
+
+	acked, err := confirmation.WaitContext(publishCtx)
+	if err != nil {
+		// 超时或连接中断时，消息可能已经被 Broker 接收。
+		return fmt.Errorf(
+			"wait delay task %q confirm has unknown outcome: %w",
+			task.ID,
+			err,
+		)
+	}
+	if !acked {
+		// Broker 明确 NACK，说明 Level MQ 没有接管，可以安全释放 MySQL 租约。
+		return taskDomain.NewPublishRejectedError(fmt.Errorf(
+			"delay task %q was negatively acknowledged",
+			task.ID,
+		))
+	}
+
+	// 对 mandatory publish，RabbitMQ 会先发送 basic.return，再发送 publisher confirm。
+	// 收到 return 表示 Broker 接收了发布请求但消息没有路由到目标 Queue，下游明确未接管。
+	select {
+	case returned, ok := <-p.returns:
+		if !ok {
+			// ACK 后监听器异常关闭时无法确认是否遗漏 return，按结果未知处理。
+			return fmt.Errorf(
+				"publish delay task %q has unknown outcome: return listener closed",
+				task.ID,
+			)
+		}
+		return taskDomain.NewPublishRejectedError(fmt.Errorf(
+			"delay task %q was returned: code=%d text=%s exchange=%s routing_key=%s",
+			task.ID,
+			returned.ReplyCode,
+			returned.ReplyText,
+			returned.Exchange,
+			returned.RoutingKey,
+		))
+	default:
+		// ACK 且没有 mandatory return，Level MQ 已可靠接管消息，所有权转移完成。
+		return nil
+	}
 }
 
 func (p *LevelPublisher) Close() error {
-	if p == nil || p.channel == nil {
+	if p == nil {
 		return nil
 	}
 	p.mu.Lock()
