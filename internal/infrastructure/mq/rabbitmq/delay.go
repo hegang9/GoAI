@@ -335,6 +335,8 @@ func NewLevelPublisher(client *Client, config DelayConfig) (*LevelPublisher, err
 //
 // 同一个 AMQP Channel 的 deferred confirm 和 basic.return 必须与当前消息一一对应，
 // 因此本方法使用互斥锁串行发布，并把编码、路由等发布前错误与发布后的不确定错误严格分开。
+//
+// TODO：如果后续证明这里的单channel是吞吐瓶颈，就使用channel pool优化
 func (p *LevelPublisher) Publish(ctx context.Context, level int, task taskDomain.Task) error {
 	// 以下校验都发生在调用 AMQP Publish 之前，失败时可以确认 Broker 尚未接管消息。
 	if p == nil {
@@ -366,15 +368,6 @@ func (p *LevelPublisher) Publish(ctx context.Context, level int, task taskDomain
 			"marshal delay task %q: %w",
 			task.ID,
 			err))
-	}
-
-	exchange := p.config.LevelExchange
-	routingKey := levelRoutingKey(p.config, level)
-
-	// Level 0 没有对应的 TTL Queue，已经到期或不足一秒的任务直接进入 Dispatcher Inbox。
-	if level == 0 {
-		exchange = p.config.DispatcherExchange
-		routingKey = p.config.DispatcherRoutingKey
 	}
 
 	// 延迟 Envelope 使用 schedule ID 作为 AMQP message_id；业务 message_id 保留在 Envelope 内。
@@ -428,6 +421,18 @@ func (p *LevelPublisher) Publish(ctx context.Context, level int, task taskDomain
 		p.config.ConfirmTimeout,
 	)
 	defer cancel()
+
+	// 在发布前计算 level
+	level = adjustLevelAfterWaitLock(level, task.TargetAt, time.Now().UnixMilli())
+
+	exchange := p.config.LevelExchange
+	routingKey := levelRoutingKey(p.config, level)
+
+	// Level 0 没有对应的 TTL Queue，已经到期或不足一秒的任务直接进入 Dispatcher Inbox。
+	if level == 0 {
+		exchange = p.config.DispatcherExchange
+		routingKey = p.config.DispatcherRoutingKey
+	}
 
 	confirmation, err := p.channel.PublishWithDeferredConfirmWithContext(
 		publishCtx,
@@ -511,4 +516,22 @@ func (p *LevelPublisher) Close() error {
 	}
 	p.channel = nil
 	return nil
+}
+
+// adjustLevelAfterWaitLock 在获取锁之后修正 level，消除等待期间过长导致 level 变更
+func adjustLevelAfterWaitLock(oldLevel int, targetAtMs int64, nowMs int64) int {
+	if oldLevel == 0 {
+		return 0
+	}
+
+	newMs := targetAtMs - nowMs
+	if newMs <= 0 {
+		return 0
+	}
+
+	level := int(newMs / 1000)
+	if level > oldLevel {
+		return oldLevel
+	}
+	return level
 }
