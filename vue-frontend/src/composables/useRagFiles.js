@@ -3,7 +3,8 @@ import { ElMessage } from 'element-plus'
 import api from '../utils/api'
 
 // RAG 知识库文档管理：拉取已上传文档列表 + 上传新文档。
-// 只允许 .md / .txt（与原 AIChat 内联逻辑保持一致）。
+const allowedExtensions = ['.md', '.txt', '.pdf', '.docx']
+
 export function useRagFiles() {
   const ragFiles = ref([])
   const uploading = ref(false)
@@ -22,8 +23,8 @@ export function useRagFiles() {
   const uploadFile = async (file) => {
     if (!file) return false
     const fileName = file.name.toLowerCase()
-    if (!fileName.endsWith('.md') && !fileName.endsWith('.txt')) {
-      ElMessage.error('只允许上传 .md 或 .txt 文件')
+    if (!allowedExtensions.some(extension => fileName.endsWith(extension))) {
+      ElMessage.error('只允许上传 .md、.txt、.pdf 或 .docx 文件')
       return false
     }
 
