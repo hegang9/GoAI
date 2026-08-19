@@ -54,6 +54,28 @@ apiKey = "rag-api-key"
 	}
 }
 
+// TestContextManagementConfig_Decodes 校验摘要、分层记忆和 checkpoint 配置能够独立解码。
+func TestContextManagementConfig_Decodes(t *testing.T) {
+	var cfg config.Config
+	_, err := toml.DecodeReader(strings.NewReader(`
+[contextManagementConfig]
+enabled = true
+summaryTriggerTokens = 12000
+recentTurns = 4
+toolClearTriggerTokens = 10000
+checkpointTTLMinutes = 30
+`), &cfg)
+	if err != nil {
+		t.Fatalf("DecodeReader() error = %v", err)
+	}
+	if !cfg.ContextManagementConfig.Enabled || cfg.SummaryTriggerTokens != 12000 || cfg.RecentTurns != 4 {
+		t.Fatalf("unexpected context config: %+v", cfg.ContextManagementConfig)
+	}
+	if cfg.ToolClearTriggerTokens != 10000 || cfg.CheckpointTTLMinutes != 30 {
+		t.Fatalf("unexpected reduction/checkpoint config: %+v", cfg.ContextManagementConfig)
+	}
+}
+
 // TestBootstrapConstants_MigratedToConfig 校验原组合根硬编码常量已迁到配置段并正确解码。
 func TestBootstrapConstants_MigratedToConfig(t *testing.T) {
 	var cfg config.Config

@@ -7,7 +7,7 @@ toolchain go1.24.10
 require (
 	github.com/BurntSushi/toml v0.3.1
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/cloudwego/eino v0.6.0
+	github.com/cloudwego/eino v0.8.0
 	github.com/cloudwego/eino-ext/components/document/transformer/splitter/markdown v0.0.0-20260616080858-ab17b7308bf8
 	github.com/cloudwego/eino-ext/components/document/transformer/splitter/recursive v0.0.0-20260616080858-ab17b7308bf8
 	github.com/cloudwego/eino-ext/components/embedding/ark v0.1.0
@@ -39,6 +39,7 @@ require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
+	github.com/bmatcuk/doublestar/v4 v4.10.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.15.1 // indirect
@@ -47,7 +48,7 @@ require (
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/eino-contrib/jsonschema v1.0.2 // indirect
+	github.com/eino-contrib/jsonschema v1.0.3 // indirect
 	github.com/eino-contrib/ollama v0.1.0 // indirect
 	github.com/evanphx/json-patch v0.5.2 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect

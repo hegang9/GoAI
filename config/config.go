@@ -214,6 +214,22 @@ type ChatReplayConfig struct {
 	DefaultModelType string `toml:"defaultModelType"`
 }
 
+// ContextManagementConfig 控制会话压缩、分层记忆与 Agent checkpoint。
+//
+// 这些阈值作用于最终模型上下文，不同于 ragModelConfig.contextWindow（文档邻居块数量）。
+type ContextManagementConfig struct {
+	// Enabled 控制摘要和分层记忆；关闭后恢复为全量历史透传。
+	Enabled bool `toml:"enabled"`
+	// SummaryTriggerTokens 是 Eino Summarization 中间件的触发阈值。
+	SummaryTriggerTokens int `toml:"summaryTriggerTokens"`
+	// RecentTurns 是摘要后继续保留原文的最近完整轮次数。
+	RecentTurns int `toml:"recentTurns"`
+	// ToolClearTriggerTokens 是 Eino Reduction 清理旧工具结果的阈值。
+	ToolClearTriggerTokens int64 `toml:"toolClearTriggerTokens"`
+	// CheckpointTTLMinutes 是 Redis 中 Agent 中断 checkpoint 的保留分钟数。
+	CheckpointTTLMinutes int `toml:"checkpointTTLMinutes"`
+}
+
 // PlannerConfig planner 检索决策器配置，对应 config.toml 的 [plannerConfig] 段。
 //
 // planner 是轻量模型，在每轮回答前决策"是否检索用户私有知识库"，
@@ -287,6 +303,8 @@ type Config struct {
 	AutoModelConfig `toml:"autoModelConfig"`
 	// 对应 [chatReplayConfig] 段
 	ChatReplayConfig `toml:"chatReplayConfig"`
+	// 对应 [contextManagementConfig] 段
+	ContextManagementConfig `toml:"contextManagementConfig"`
 	// 对应 [plannerConfig] 段
 	PlannerConfig `toml:"plannerConfig"`
 	// 对应 [mcpConfig] 段

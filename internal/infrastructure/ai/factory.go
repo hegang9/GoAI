@@ -7,6 +7,8 @@ import (
 	"GopherAI/internal/domain/chat"
 	raginfra "GopherAI/internal/infrastructure/rag"
 	"GopherAI/pkg/logger"
+
+	"github.com/cloudwego/eino/adk"
 )
 
 // FactoryConfig 描述模型工厂创建各类模型所需的配置。
@@ -21,6 +23,12 @@ type FactoryConfig struct {
 	MCPBaseURL string
 	// Planner 检索决策器，供 auto 模型使用；为 nil 时 auto 模型退化为纯生成。
 	Planner *Planner
+	// ContextRepository 保存官方 Summarization 生成的摘要与核心记忆。
+	ContextRepository chat.ContextRepository
+	// ContextConfig 控制摘要和工具结果压缩阈值。
+	ContextConfig ContextConfig
+	// CheckPointStore 保存 Eino Runner 的中断恢复状态。
+	CheckPointStore adk.CheckPointStore
 }
 
 // Factory 实现 domain/chat.ModelFactory 端口：按模型类型创建具体模型实现。
@@ -49,7 +57,19 @@ func (f *Factory) Create(ctx context.Context, modelType string, params map[strin
 		if !ok {
 			return nil, fmt.Errorf("auto model requires account_no")
 		}
-		return NewAutoRouterModel(ctx, accountNo, f.cfg.AutoModelName, f.cfg.AutoBaseURL, f.cfg.AutoAPIKey, f.cfg.MCPBaseURL, f.cfg.Planner, f.engine)
+		return NewAutoRouterModel(
+			ctx,
+			accountNo,
+			f.cfg.AutoModelName,
+			f.cfg.AutoBaseURL,
+			f.cfg.AutoAPIKey,
+			f.cfg.MCPBaseURL,
+			f.cfg.Planner,
+			f.engine,
+			f.cfg.ContextRepository,
+			f.cfg.ContextConfig,
+			f.cfg.CheckPointStore,
+		)
 	case "4":
 		baseURL, _ := params["baseURL"].(string)
 		modelName, ok := params["modelName"].(string)

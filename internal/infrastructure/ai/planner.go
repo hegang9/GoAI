@@ -105,7 +105,7 @@ func (p *Planner) planWithLLM(ctx context.Context, accountNo string, messages []
 	// 调用 LLM 判断（带计时，供观测 latency.plan_ms）
 	planStart := time.Now()
 	resp, err := p.llm.Generate(planCtx, []*schema.Message{
-		{Role: schema.User, Content: p.buildPlannerPrompt(messages)},
+		{Role: schema.User, Content: p.buildPlannerPrompt(planCtx, messages)},
 	})
 	planMs := time.Since(planStart).Milliseconds()
 	if err != nil {
@@ -146,7 +146,7 @@ func (p *Planner) planWithLLM(ctx context.Context, accountNo string, messages []
 }
 
 // buildPlannerPrompt 构造决策提示词，携带最近 historyWindow 轮历史。
-func (p *Planner) buildPlannerPrompt(messages []chat.Message) string {
+func (p *Planner) buildPlannerPrompt(ctx context.Context, messages []chat.Message) string {
 	start := len(messages) - p.historyWindow
 	if start < 0 {
 		start = 0
@@ -158,6 +158,12 @@ func (p *Planner) buildPlannerPrompt(messages []chat.Message) string {
 			role = "助手"
 		}
 		history.WriteString(fmt.Sprintf("%s：%s\n", role, m.Content))
+	}
+	var earlierMemory string
+	if state, ok := ctx.Value(memoryRunStateKey{}).(*memoryRunState); ok {
+		if state.snapshot.CoreMemory != "" || state.snapshot.Summary != "" {
+			earlierMemory = formatPreviousMemory(state.snapshot)
+		}
 	}
 	return fmt.Sprintf(`你是检索决策器。根据多轮对话历史，判断"是否需要检索用户私有知识库"，并产出结构化检索计划。
 
@@ -190,9 +196,12 @@ func (p *Planner) buildPlannerPrompt(messages []chat.Message) string {
 返回示例：
 {"need_retrieval":true,"retrieval_query":"员工手册中关于年假申请的流程","doc_filter":{"storedName":"员工手册.md","headers":"年假"},"confidence":"high","reason":"用户询问私有制度文档中的具体流程"}
 
-对话历史：
+较早会话记忆：
 %s
-输出 JSON：`, history.String())
+
+最近对话历史：
+%s
+输出 JSON：`, earlierMemory, history.String())
 }
 
 // parsePlannerJSON 容错解析 planner 输出，提取首个 { 到末个 } 的子串，最终返回标准TurnPlan结构体。
