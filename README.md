@@ -201,6 +201,8 @@ Poller 在事务提交后才向 Level MQ 发布。只有收到 RabbitMQ Broker c
 
 应用层 `internal/application/delay.Poller` 默认每 200ms 提前扫描未来 10 秒内的任务，使用固定 worker 数在 MySQL 抢占事务提交后并发发布 Level MQ。任务按剩余毫秒向下取整选择 Level 0～10；Level Publisher 只有明确返回 `PublishRejectedError` 时 Poller 才释放租约，confirm 超时、连接中断或数据库状态回写失败均保留租约等待恢复。
 
+RabbitMQ `FinalPublisher` 负责把 Dispatcher 中成熟的任务还原为原始业务消息：Topic 目标发布到业务 Topic Exchange，消费者组目标通过 Redrive Exchange 精确回投。发布会保留原始 Body、MessageId、Headers 和 Timestamp，并补充 `x-goai-topic`、`x-retry-attempt`；只有 publisher confirm 为 ACK 且消息未被 `mandatory` 退回时才算成功。Channel 关闭导致的 `acked=false` 与 confirm 超时均按结果未知处理，Dispatcher 不得 ACK 原 Inbox Delivery；Topic/consumer group 白名单与对应 Exchange、Queue、Binding 仍需在后续 bootstrap 拓扑接线时注入。
+
 `[chatReplayConfig]` 示例：
 
 ```toml
