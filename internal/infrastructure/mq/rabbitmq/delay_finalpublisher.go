@@ -1,4 +1,3 @@
-// FinalPublisher 将成熟的延迟任务还原为业务消息并发布到最终目标。
 package rabbitmq
 
 import (
@@ -11,73 +10,29 @@ import (
 	"time"
 
 	"GopherAI/internal/domain/delay"
-	messageDomain "GopherAI/internal/domain/message"
+	"GopherAI/internal/domain/message"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+// FinalPublisher 将成熟的延迟任务还原为业务消息，并可靠发布到最终目标。
 type FinalPublisher struct {
-	channel finalPublishChannel
+	// 发布、confirm 和 mandatory return 都属于同一个 Channel 的状态。
+	channel *amqp.Channel
 	returns <-chan amqp.Return
-	closes  <-chan *amqp.Error
+	// closes 保存 Broker 主动关闭 Channel 时的具体原因。
+	closes <-chan *amqp.Error
 
+	// 同一 Channel 上一次只允许一条待确认消息，避免 confirm 与 return 关联错位。
 	mu     sync.Mutex
 	config FinalPublisherConfig
 
+	// 白名单同时承担配置校验，避免把任务发布到未声明的拓扑。
 	topics         map[string]struct{}
 	consumerGroups map[string]struct{}
 }
 
-type finalConfirmation interface {
-	WaitContext(ctx context.Context) (bool, error)
-}
-
-type finalPublishChannel interface {
-	PublishWithDeferredConfirmWithContext(
-		ctx context.Context,
-		exchange string,
-		key string,
-		mandatory bool,
-		immediate bool,
-		msg amqp.Publishing,
-	) (finalConfirmation, error)
-	IsClosed() bool
-	Close() error
-}
-
-type amqpFinalPublishChannel struct {
-	channel *amqp.Channel
-}
-
-func (c *amqpFinalPublishChannel) PublishWithDeferredConfirmWithContext(
-	ctx context.Context,
-	exchange string,
-	key string,
-	mandatory bool,
-	immediate bool,
-	msg amqp.Publishing,
-) (finalConfirmation, error) {
-	return c.channel.PublishWithDeferredConfirmWithContext(
-		ctx,
-		exchange,
-		key,
-		mandatory,
-		immediate,
-		msg,
-	)
-}
-
-func (c *amqpFinalPublishChannel) IsClosed() bool {
-	return c == nil || c.channel == nil || c.channel.IsClosed()
-}
-
-func (c *amqpFinalPublishChannel) Close() error {
-	if c == nil || c.channel == nil {
-		return nil
-	}
-	return c.channel.Close()
-}
-
+// FinalPublisherConfig 描述最终发布所需的 Exchange、目标白名单和确认超时。
 type FinalPublisherConfig struct {
 	// TopicExchange 承载正常 Topic 广播，RedriveExchange 用于精确回投消费者组。
 	TopicExchange   string
@@ -85,12 +40,15 @@ type FinalPublisherConfig struct {
 	// ConfirmTimeout 限制一次发布等待 Broker confirm 的时间。
 	ConfirmTimeout time.Duration
 
+	// Topics 和 ConsumerGroups 必须与启动时声明的 RabbitMQ 拓扑保持一致。
 	Topics         []string
 	ConsumerGroups []string
 }
 
+// 编译期确认 RabbitMQ 实现满足领域层端口。
 var _ delay.FinalPublisher = (*FinalPublisher)(nil)
 
+// NewFinalPublisher 创建独立发布 Channel，并启用 publisher confirm 和 mandatory return 监听。
 func NewFinalPublisher(client *Client, config FinalPublisherConfig) (*FinalPublisher, error) {
 	if client == nil || client.conn == nil {
 		return nil, errors.New("new final publisher: rabbitmq client is nil")
@@ -125,14 +83,13 @@ func NewFinalPublisher(client *Client, config FinalPublisherConfig) (*FinalPubli
 		)
 	}
 
+	// mu 保证最多一条消息等待结果，因此容量 1 足以承接当前消息的异步通知。
 	returns := channel.NotifyReturn(
 		make(chan amqp.Return, 1),
 	)
-	// NotifyClose 必须使用有缓冲监听器，避免异常关闭时阻塞 amqp091-go 的分发协程。
 	closes := channel.NotifyClose(make(chan *amqp.Error, 1))
-
 	return &FinalPublisher{
-		channel:        &amqpFinalPublishChannel{channel: channel},
+		channel:        channel,
 		returns:        returns,
 		closes:         closes,
 		config:         config,
@@ -141,6 +98,7 @@ func NewFinalPublisher(client *Client, config FinalPublisherConfig) (*FinalPubli
 	}, nil
 }
 
+// validateFinalPublisherConfig 在建立 Channel 前拒绝不完整或相互冲突的配置。
 func validateFinalPublisherConfig(config FinalPublisherConfig) error {
 	switch {
 	case strings.TrimSpace(config.TopicExchange) == "":
@@ -170,6 +128,7 @@ func validateFinalPublisherConfig(config FinalPublisherConfig) error {
 	}
 }
 
+// slice2map 清理配置项并转换为便于路由校验的集合。
 func slice2map(values []string, field string) (map[string]struct{}, error) {
 	result := make(map[string]struct{}, len(values))
 
@@ -184,9 +143,10 @@ func slice2map(values []string, field string) (map[string]struct{}, error) {
 	return result, nil
 }
 
+// route 把领域层逻辑目标映射为 RabbitMQ Exchange 和 routing key。
 func (p *FinalPublisher) route(task delay.Task) (string, string, error) {
 	switch task.Target.Kind {
-	case messageDomain.TargetTopic:
+	case message.TargetTopic:
 		if _, ok := p.topics[task.Message.Topic]; !ok {
 			return "", "", fmt.Errorf(
 				"final publish topic %q is not allowed",
@@ -195,7 +155,7 @@ func (p *FinalPublisher) route(task delay.Task) (string, string, error) {
 		}
 		return p.config.TopicExchange, task.Message.Topic, nil
 
-	case messageDomain.TargetConsumerGroup:
+	case message.TargetConsumerGroup:
 		if _, ok := p.consumerGroups[task.Target.ConsumerGroup]; !ok {
 			return "", "", fmt.Errorf(
 				"final publish consumer group %q is not configured",
@@ -212,7 +172,9 @@ func (p *FinalPublisher) route(task delay.Task) (string, string, error) {
 	}
 }
 
+// buildFinalPublishing 恢复原始业务消息，并补充重试链路所需的元数据。
 func buildFinalPublishing(task delay.Task) amqp.Publishing {
+	// 复制 Headers 和 Body，避免 AMQP 客户端异步使用期间被领域对象修改。
 	headers := make(amqp.Table, len(task.Message.Headers)+2)
 	for key, value := range task.Message.Headers {
 		headers[key] = value
@@ -250,9 +212,11 @@ func (p *FinalPublisher) Publish(ctx context.Context, task delay.Task) error {
 	}
 	message := buildFinalPublishing(task)
 
+	// confirm 和 mandatory return 都是 Channel 级事件，必须覆盖完整发布确认周期。
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	// 任务等待锁期间可能已经被 Dispatcher 取消，正式发布前再次检查。
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf(
 			"final publish task %q cancelled before publish: %w",
@@ -270,6 +234,7 @@ func (p *FinalPublisher) Publish(ctx context.Context, task delay.Task) error {
 	publishCtx, cancel := context.WithTimeout(ctx, p.config.ConfirmTimeout)
 	defer cancel()
 
+	// mandatory=true 让不可路由消息通过 basic.return 返回；immediate 已被 RabbitMQ 废弃。
 	confirmation, err := p.channel.PublishWithDeferredConfirmWithContext(
 		publishCtx,
 		exchange,
@@ -279,6 +244,7 @@ func (p *FinalPublisher) Publish(ctx context.Context, task delay.Task) error {
 		message,
 	)
 	if err != nil {
+		// Publish 返回错误时消息可能已经写入网络，不能断言 Broker 没有接管。
 		p.invalidateChannel()
 		return fmt.Errorf(
 			"publish final task %q has unknown outcome: %w",
@@ -287,6 +253,7 @@ func (p *FinalPublisher) Publish(ctx context.Context, task delay.Task) error {
 		)
 	}
 	if confirmation == nil {
+		// 消息可能已经发出，但缺少可等待的确认对象，结果仍然未知。
 		p.invalidateChannel()
 		return fmt.Errorf(
 			"publish final task %q has unknown outcome: publisher confirm is unavailable",
@@ -296,6 +263,7 @@ func (p *FinalPublisher) Publish(ctx context.Context, task delay.Task) error {
 
 	acked, err := confirmation.WaitContext(publishCtx)
 	if err != nil {
+		// 超时或连接中断都不能证明 Broker 未收到消息。
 		p.invalidateChannel()
 		return fmt.Errorf(
 			"wait final task %q confirm has unknown outcome: %w",
@@ -314,13 +282,16 @@ func (p *FinalPublisher) Publish(ctx context.Context, task delay.Task) error {
 			)
 		}
 
+		// Channel 仍可用时，acked=false 才表示 Broker 明确 NACK。
 		p.invalidateChannel()
 		return fmt.Errorf("final task %q was negatively acknowledged", task.ID)
 	}
 
+	// 对不可路由的 mandatory 消息，RabbitMQ 会先通知 return listener，再发送 confirm。
 	select {
 	case returned, ok := <-p.returns:
 		if !ok {
+			// 监听器关闭后无法排除遗漏 return，因此不能把 ACK 当作最终成功。
 			p.invalidateChannel()
 			return fmt.Errorf(
 				"final task %q return listener closed; outcome unknown",
@@ -328,6 +299,7 @@ func (p *FinalPublisher) Publish(ctx context.Context, task delay.Task) error {
 			)
 		}
 		if returned.MessageId != task.Message.ID || returned.CorrelationId != task.ID {
+			// 出现不属于当前任务的 return，说明 Channel 事件关联已经不可信。
 			p.invalidateChannel()
 			return fmt.Errorf(
 				"final task %q received unrelated mandatory return; outcome unknown",
@@ -344,10 +316,12 @@ func (p *FinalPublisher) Publish(ctx context.Context, task delay.Task) error {
 		)
 
 	default:
+		// Broker ACK 且没有 mandatory return，最终消息系统已经接管消息。
 		return nil
 	}
 }
 
+// channelUnavailableError 尽量附带 Broker 关闭 Channel 的具体原因。
 func (p *FinalPublisher) channelUnavailableError() error {
 	if p.closes != nil {
 		select {
@@ -371,6 +345,7 @@ func (p *FinalPublisher) invalidateChannel() {
 	p.channel = nil
 }
 
+// Close 关闭发布 Channel；重复调用是安全的。
 func (p *FinalPublisher) Close() error {
 	if p == nil {
 		return nil

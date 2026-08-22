@@ -470,7 +470,15 @@ func (p *LevelPublisher) Publish(ctx context.Context, level int, task taskDomain
 		)
 	}
 	if !acked {
-		// Broker 明确 NACK，说明 Level MQ 没有接管，可以安全释放 MySQL 租约。
+		// acked==false，err==nil有两种情况，一是 Broker 明确发送 NACK，二是 Channel 断开，客户端关闭待确认项
+		if p.channel.IsClosed() {
+			return fmt.Errorf(
+				"delay task %q confirm interrupted by channel close; outcome unknown",
+				task.ID,
+			)
+		}
+
+		// Channel 仍正常，才按 Broker NACK 处理。
 		return taskDomain.NewPublishRejectedError(fmt.Errorf(
 			"delay task %q was negatively acknowledged",
 			task.ID,

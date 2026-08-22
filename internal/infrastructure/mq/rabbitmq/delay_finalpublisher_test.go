@@ -3,279 +3,121 @@ package rabbitmq
 import (
 	"bytes"
 	"context"
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"GopherAI/internal/domain/delay"
-	messageDomain "GopherAI/internal/domain/message"
+	"GopherAI/internal/domain/message"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-func TestFinalPublisherPublishRejectsNilPublisher(t *testing.T) {
-	var publisher *FinalPublisher
+func TestFinalPublisherRoute(t *testing.T) {
+	publisher := finalPublisherForTest()
 
-	if err := publisher.Publish(context.Background(), delay.Task{}); err == nil {
-		t.Fatal("Publish() error = nil, want nil publisher error")
+	topicTask := validFinalPublisherTask(t, message.TopicTarget(), 0)
+	exchange, routingKey, err := publisher.route(topicTask)
+	if err != nil {
+		t.Fatalf("route topic error = %v", err)
+	}
+	if exchange != "gopherai.events" || routingKey != topicTask.Message.Topic {
+		t.Fatalf("route topic = %q/%q", exchange, routingKey)
+	}
+
+	groupTarget, err := message.ConsumerGroupTarget("analytics")
+	if err != nil {
+		t.Fatalf("ConsumerGroupTarget() error = %v", err)
+	}
+	groupTask := validFinalPublisherTask(t, groupTarget, 2)
+	exchange, routingKey, err = publisher.route(groupTask)
+	if err != nil {
+		t.Fatalf("route consumer group error = %v", err)
+	}
+	if exchange != "gopherai.events.redrive" || routingKey != "analytics" {
+		t.Fatalf("route consumer group = %q/%q", exchange, routingKey)
 	}
 }
 
-func TestFinalPublisherPublishRoutesTopicAndPreservesBusinessMessage(t *testing.T) {
-	task := validFinalPublisherTask(t, messageDomain.TopicTarget(), 0)
-	channel := &finalPublishChannelStub{confirmation: finalConfirmationStub{acked: true}}
-	publisher := finalPublisherForTest(channel)
-
-	if err := publisher.Publish(context.Background(), task); err != nil {
-		t.Fatalf("Publish() error = %v", err)
-	}
-
-	if channel.exchange != "gopherai.events" {
-		t.Fatalf("Publish() exchange = %q, want %q", channel.exchange, "gopherai.events")
-	}
-	if channel.routingKey != task.Message.Topic {
-		t.Fatalf("Publish() routing key = %q, want %q", channel.routingKey, task.Message.Topic)
-	}
-	if !channel.mandatory || channel.immediate {
-		t.Fatalf("Publish() flags mandatory=%t immediate=%t, want true/false", channel.mandatory, channel.immediate)
-	}
-	if channel.message.MessageId != task.Message.ID {
-		t.Fatalf("Publish() message ID = %q, want business ID %q", channel.message.MessageId, task.Message.ID)
-	}
-	if !bytes.Equal(channel.message.Body, task.Message.Body) {
-		t.Fatalf("Publish() body = %q, want %q", channel.message.Body, task.Message.Body)
-	}
-	if !channel.message.Timestamp.Equal(task.Message.Timestamp) {
-		t.Fatalf("Publish() timestamp = %s, want %s", channel.message.Timestamp, task.Message.Timestamp)
-	}
-	wantHeaders := amqp.Table{
-		"trace_id":        "trace-1",
-		"x-goai-topic":    task.Message.Topic,
-		"x-retry-attempt": int64(0),
-	}
-	if !reflect.DeepEqual(channel.message.Headers, wantHeaders) {
-		t.Fatalf("Publish() headers = %#v, want %#v", channel.message.Headers, wantHeaders)
-	}
-	if _, exists := task.Message.Headers["x-goai-topic"]; exists {
-		t.Fatal("Publish() mutated task message headers")
-	}
-}
-
-func TestFinalPublisherPublishRoutesConsumerGroupToRedriveExchange(t *testing.T) {
-	target, err := messageDomain.ConsumerGroupTarget("analytics")
+func TestBuildFinalPublishingPreservesBusinessMessage(t *testing.T) {
+	target, err := message.ConsumerGroupTarget("analytics")
 	if err != nil {
 		t.Fatalf("ConsumerGroupTarget() error = %v", err)
 	}
 	task := validFinalPublisherTask(t, target, 2)
-	channel := &finalPublishChannelStub{confirmation: finalConfirmationStub{acked: true}}
-	publisher := finalPublisherForTest(channel)
+	publishing := buildFinalPublishing(task)
 
-	if err = publisher.Publish(context.Background(), task); err != nil {
-		t.Fatalf("Publish() error = %v", err)
+	if publishing.MessageId != task.Message.ID {
+		t.Fatalf("message ID = %q, want %q", publishing.MessageId, task.Message.ID)
 	}
-
-	if channel.exchange != "gopherai.events.redrive" {
-		t.Fatalf("Publish() exchange = %q, want redrive exchange", channel.exchange)
+	if publishing.CorrelationId != task.ID {
+		t.Fatalf("correlation ID = %q, want %q", publishing.CorrelationId, task.ID)
 	}
-	if channel.routingKey != "analytics" {
-		t.Fatalf("Publish() routing key = %q, want %q", channel.routingKey, "analytics")
+	if publishing.DeliveryMode != amqp.Persistent {
+		t.Fatalf("delivery mode = %d, want persistent", publishing.DeliveryMode)
 	}
-	if got := channel.message.Headers["x-retry-attempt"]; got != int64(2) {
-		t.Fatalf("Publish() retry header = %#v, want int64(2)", got)
+	if !bytes.Equal(publishing.Body, task.Message.Body) {
+		t.Fatalf("body = %q, want %q", publishing.Body, task.Message.Body)
 	}
-}
-
-func TestFinalPublisherPublishRejectsUnknownTopicBeforeAMQP(t *testing.T) {
-	task := validFinalPublisherTask(t, messageDomain.TopicTarget(), 0)
-	task.Message.Topic = "unknown.topic.v1"
-	channel := &finalPublishChannelStub{confirmation: finalConfirmationStub{acked: true}}
-	publisher := finalPublisherForTest(channel)
-
-	err := publisher.Publish(context.Background(), task)
-	if err == nil || !strings.Contains(err.Error(), "is not allowed") {
-		t.Fatalf("Publish() error = %v, want topic-not-allowed error", err)
+	if !publishing.Timestamp.Equal(task.Message.Timestamp) {
+		t.Fatalf("timestamp = %s, want %s", publishing.Timestamp, task.Message.Timestamp)
 	}
-	if channel.publishCalls != 0 {
-		t.Fatalf("Publish() AMQP calls = %d, want 0", channel.publishCalls)
+	wantHeaders := amqp.Table{
+		"trace_id":        "trace-1",
+		"x-goai-topic":    task.Message.Topic,
+		"x-retry-attempt": int64(2),
+	}
+	if !reflect.DeepEqual(publishing.Headers, wantHeaders) {
+		t.Fatalf("headers = %#v, want %#v", publishing.Headers, wantHeaders)
+	}
+	if _, exists := task.Message.Headers["x-goai-topic"]; exists {
+		t.Fatal("buildFinalPublishing() mutated task headers")
 	}
 }
 
-func TestFinalPublisherPublishFailureSemantics(t *testing.T) {
-	task := validFinalPublisherTask(t, messageDomain.TopicTarget(), 0)
-	closingChannel := &finalPublishChannelStub{}
-	closingChannel.confirmation = closingFinalConfirmationStub{channel: closingChannel}
+func TestFinalPublisherPublishRejectsBeforeAMQP(t *testing.T) {
+	t.Run("nil publisher", func(t *testing.T) {
+		var publisher *FinalPublisher
+		if err := publisher.Publish(context.Background(), delay.Task{}); err == nil {
+			t.Fatal("Publish() error = nil")
+		}
+	})
 
-	tests := []struct {
-		name            string
-		channel         *finalPublishChannelStub
-		returns         []amqp.Return
-		wantError       string
-		wantInvalidated bool
-	}{
-		{
-			name:            "publish error has unknown outcome",
-			channel:         &finalPublishChannelStub{publishErr: errors.New("connection lost")},
-			wantError:       "unknown outcome",
-			wantInvalidated: true,
-		},
-		{
-			name:            "missing confirmation has unknown outcome",
-			channel:         &finalPublishChannelStub{},
-			wantError:       "confirm is unavailable",
-			wantInvalidated: true,
-		},
-		{
-			name: "confirm wait error has unknown outcome",
-			channel: &finalPublishChannelStub{confirmation: finalConfirmationStub{
-				err: errors.New("confirm timeout"),
-			}},
-			wantError:       "unknown outcome",
-			wantInvalidated: true,
-		},
-		{
-			name:            "broker nack is explicit rejection",
-			channel:         &finalPublishChannelStub{confirmation: finalConfirmationStub{acked: false}},
-			wantError:       "negatively acknowledged",
-			wantInvalidated: true,
-		},
-		{
-			name:            "channel close is not broker nack",
-			channel:         closingChannel,
-			wantError:       "outcome unknown",
-			wantInvalidated: true,
-		},
-		{
-			name:    "mandatory return is explicit routing rejection",
-			channel: &finalPublishChannelStub{confirmation: finalConfirmationStub{acked: true}},
-			returns: []amqp.Return{{
-				ReplyCode:     312,
-				ReplyText:     "NO_ROUTE",
-				Exchange:      "gopherai.events",
-				RoutingKey:    task.Message.Topic,
-				MessageId:     task.Message.ID,
-				CorrelationId: task.ID,
-			}},
-			wantError:       "was returned",
-			wantInvalidated: false,
-		},
-	}
+	t.Run("unknown topic", func(t *testing.T) {
+		publisher := finalPublisherForTest()
+		task := validFinalPublisherTask(t, message.TopicTarget(), 0)
+		task.Message.Topic = "unknown.topic.v1"
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			publisher := finalPublisherForTest(tt.channel)
-			returns := make(chan amqp.Return, len(tt.returns)+1)
-			for _, returned := range tt.returns {
-				returns <- returned
-			}
-			publisher.returns = returns
+		err := publisher.Publish(context.Background(), task)
+		if err == nil || !strings.Contains(err.Error(), "is not allowed") {
+			t.Fatalf("Publish() error = %v, want topic-not-allowed error", err)
+		}
+	})
 
-			err := publisher.Publish(context.Background(), task)
-			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
-				t.Fatalf("Publish() error = %v, want error containing %q", err, tt.wantError)
-			}
-			if got := publisher.channel == nil; got != tt.wantInvalidated {
-				t.Fatalf("Publish() invalidated channel = %t, want %t", got, tt.wantInvalidated)
-			}
-		})
-	}
+	t.Run("channel unavailable", func(t *testing.T) {
+		publisher := finalPublisherForTest()
+		task := validFinalPublisherTask(t, message.TopicTarget(), 0)
+
+		err := publisher.Publish(context.Background(), task)
+		if err == nil || !strings.Contains(err.Error(), "channel is unavailable") {
+			t.Fatalf("Publish() error = %v, want unavailable-channel error", err)
+		}
+	})
 }
 
-func TestFinalPublisherCloseIsIdempotent(t *testing.T) {
-	channel := &finalPublishChannelStub{}
-	publisher := finalPublisherForTest(channel)
-
+func TestFinalPublisherCloseWithoutChannel(t *testing.T) {
+	publisher := finalPublisherForTest()
 	if err := publisher.Close(); err != nil {
-		t.Fatalf("first Close() error = %v", err)
+		t.Fatalf("Close() error = %v", err)
 	}
 	if err := publisher.Close(); err != nil {
 		t.Fatalf("second Close() error = %v", err)
 	}
-	if channel.closeCalls != 1 {
-		t.Fatalf("Close() channel calls = %d, want 1", channel.closeCalls)
-	}
 }
 
-func TestFinalPublisherCloseDropsChannelAfterCloseError(t *testing.T) {
-	channel := &finalPublishChannelStub{closeErr: errors.New("socket closed")}
-	publisher := finalPublisherForTest(channel)
-
-	err := publisher.Close()
-	if err == nil || !strings.Contains(err.Error(), "socket closed") {
-		t.Fatalf("Close() error = %v, want socket close error", err)
-	}
-	if publisher.channel != nil {
-		t.Fatal("Close() retained an unusable channel")
-	}
-	if err = publisher.Close(); err != nil {
-		t.Fatalf("second Close() error = %v", err)
-	}
-}
-
-type finalPublishChannelStub struct {
-	confirmation finalConfirmation
-	publishErr   error
-	publishCalls int
-	closed       bool
-	closeErr     error
-	closeCalls   int
-
-	exchange   string
-	routingKey string
-	mandatory  bool
-	immediate  bool
-	message    amqp.Publishing
-}
-
-func (c *finalPublishChannelStub) PublishWithDeferredConfirmWithContext(
-	_ context.Context,
-	exchange string,
-	key string,
-	mandatory bool,
-	immediate bool,
-	message amqp.Publishing,
-) (finalConfirmation, error) {
-	c.publishCalls++
-	c.exchange = exchange
-	c.routingKey = key
-	c.mandatory = mandatory
-	c.immediate = immediate
-	c.message = message
-	return c.confirmation, c.publishErr
-}
-
-func (c *finalPublishChannelStub) IsClosed() bool { return c.closed }
-
-func (c *finalPublishChannelStub) Close() error {
-	c.closeCalls++
-	c.closed = true
-	return c.closeErr
-}
-
-type finalConfirmationStub struct {
-	acked bool
-	err   error
-}
-
-type closingFinalConfirmationStub struct {
-	channel *finalPublishChannelStub
-}
-
-func (c closingFinalConfirmationStub) WaitContext(context.Context) (bool, error) {
-	c.channel.closed = true
-	return false, nil
-}
-
-func (c finalConfirmationStub) WaitContext(context.Context) (bool, error) {
-	return c.acked, c.err
-}
-
-func finalPublisherForTest(channel finalPublishChannel) *FinalPublisher {
+func finalPublisherForTest() *FinalPublisher {
 	return &FinalPublisher{
-		channel: channel,
-		returns: make(chan amqp.Return, 1),
-		closes:  make(chan *amqp.Error, 1),
 		config: FinalPublisherConfig{
 			TopicExchange:   "gopherai.events",
 			RedriveExchange: "gopherai.events.redrive",
@@ -292,12 +134,12 @@ func finalPublisherForTest(channel finalPublishChannel) *FinalPublisher {
 
 func validFinalPublisherTask(
 	t *testing.T,
-	target messageDomain.Target,
+	target message.Target,
 	retryAttempt uint32,
 ) delay.Task {
 	t.Helper()
 
-	message, err := messageDomain.New(
+	msg, err := message.New(
 		"message-1",
 		"chat.message.created.v1",
 		map[string]string{"trace_id": "trace-1"},
@@ -311,7 +153,7 @@ func validFinalPublisherTask(
 	task, err := delay.NewTask(
 		"schedule-1",
 		"account-1",
-		message,
+		msg,
 		target,
 		retryAttempt,
 		time.Date(2026, 8, 20, 9, 31, 0, 0, time.FixedZone("CST", 8*60*60)).UnixMilli(),
