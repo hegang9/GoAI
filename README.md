@@ -203,7 +203,7 @@ Poller 在事务提交后才向 Level MQ 发布。只有收到 RabbitMQ Broker c
 
 RabbitMQ `FinalPublisher` 负责把 Dispatcher 中成熟的任务还原为原始业务消息：Topic 目标发布到业务 Topic Exchange，消费者组目标通过 Redrive Exchange 精确回投。发布会保留原始 Body、MessageId、Headers 和 Timestamp，并补充 `x-goai-topic`、`x-retry-attempt`；只有 publisher confirm 为 ACK 且消息未被 `mandatory` 退回时才算成功。Channel 关闭导致的 `acked=false` 与 confirm 超时均按结果未知处理，Dispatcher 不得 ACK 原 Inbox Delivery；Topic/consumer group 白名单与对应 Exchange、Queue、Binding 仍需在后续 bootstrap 拓扑接线时注入。
 
-Dispatcher 的本地尾差等待使用应用层时间轮：16 个独立 Shard 按稳定 `schedule_id` 哈希分配任务，每个 Shard 使用 100 个槽位和 10ms Tick，单圈覆盖 1 秒，并通过 rounds 兼容更长等待。槽位触发时会再次比较绝对 `TargetAt`，过早任务重新插入，到期任务写入有界 ready channel；时间轮只保存任务和原 Delivery 的 ACK 回调，不执行网络发布，也不会提前 ACK。进程退出时内存状态允许丢失，RabbitMQ 中未 ACK 的 Dispatcher Inbox Delivery 负责重新投递。
+Dispatcher 的本地尾差等待使用应用层时间轮：`NewDispatcher` 校验 FinalPublisher 和 ready 容量并完成两者接线；`Submit` 校验 Task 与 ACK 回调，已到期任务直接写入 ready，未到期任务进入时间轮，两个入口都能在背压时响应 Context 取消。16 个独立 Shard 按稳定 `schedule_id` 哈希分配任务，每个 Shard 使用 100 个槽位和 10ms Tick，单圈覆盖 1 秒，并通过 rounds 兼容更长等待。槽位触发时会再次比较绝对 `TargetAt`，过早任务重新插入，到期任务写入有界 ready channel；`Run` 启动时间轮并同步消费 ready，只有 FinalPublisher 成功后才 ACK 原 Dispatcher Inbox Delivery，发布或 ACK 失败则停止并向外返回错误。时间轮只保存任务和原 Delivery 的 ACK 回调，不执行网络发布，也不会提前 ACK。进程退出时内存状态允许丢失，RabbitMQ 中未 ACK 的 Dispatcher Inbox Delivery 负责重新投递。
 
 `[chatReplayConfig]` 示例：
 
