@@ -130,6 +130,59 @@ type Rabbitmq struct {
 	RabbitmqPublishConfirmTimeoutMs int `toml:"publishConfirmTimeoutMs"`
 }
 
+// DelayConsumerGroupConfig 描述一个 RabbitMQ 消费者组的拓扑和重试策略。
+type DelayConsumerGroupConfig struct {
+	// Name 同时作为 Redrive Exchange 精确回投该组的 routing key。
+	Name string `toml:"name"`
+	// Queue 由同组的所有 Consumer 实例竞争消费。
+	Queue string `toml:"queue"`
+	// Topics 是该组在 Topic Exchange 上订阅的 routing key。
+	Topics []string `toml:"topics"`
+	// DeadLetterQueue 独立保存该组永久失败或重试耗尽的消息。
+	DeadLetterQueue      string `toml:"deadLetterQueue"`
+	DeadLetterRoutingKey string `toml:"deadLetterRoutingKey"`
+	// RetryDelaysMs 按顺序定义第 1、2……次业务重试的等待时间。
+	RetryDelaysMs []int `toml:"retryDelaysMs"`
+}
+
+// DelayConfig 描述统一延迟调度链路；当前仅负责解码，运行时校验由各组件构造器完成。
+type DelayConfig struct {
+	Enabled bool `toml:"enabled"`
+
+	// DelayService 的长短延迟边界。
+	ShortThresholdMs int64 `toml:"shortThresholdMs"`
+	MaxDelayHours    int   `toml:"maxDelayHours"`
+
+	// Level Queue 与 Dispatcher Inbox 拓扑。
+	LevelExchange        string `toml:"levelExchange"`
+	LevelQueuePrefix     string `toml:"levelQueuePrefix"`
+	LevelRoutingPrefix   string `toml:"levelRoutingPrefix"`
+	DispatcherExchange   string `toml:"dispatcherExchange"`
+	DispatcherQueue      string `toml:"dispatcherQueue"`
+	DispatcherRoutingKey string `toml:"dispatcherRoutingKey"`
+	MaxLevel             int    `toml:"maxLevel"`
+	ConfirmTimeoutMs     int    `toml:"confirmTimeoutMs"`
+
+	// FinalPublisher 的正常广播、精确回投与最终失败拓扑。
+	TopicExchange      string `toml:"topicExchange"`
+	RedriveExchange    string `toml:"redriveExchange"`
+	DeadLetterExchange string `toml:"deadLetterExchange"`
+
+	// Dispatcher 的未 ACK 窗口和本地 ready channel 容量。
+	DispatcherPrefetchCount int `toml:"dispatcherPrefetchCount"`
+	DispatcherReadyCapacity int `toml:"dispatcherReadyCapacity"`
+
+	// MySQL Poller 的扫描、租约和发布并发参数。
+	PollIntervalMs  int `toml:"pollIntervalMs"`
+	PollAheadMs     int `toml:"pollAheadMs"`
+	LeaseDurationMs int `toml:"leaseDurationMs"`
+	PollBatchSize   int `toml:"pollBatchSize"`
+	PublishWorkers  int `toml:"publishWorkers"`
+	PollerMaxLevel  int `toml:"pollerMaxLevel"`
+
+	ConsumerGroups []DelayConsumerGroupConfig `toml:"consumerGroups"`
+}
+
 // RagModelConfig RAG（检索增强生成）模型配置。
 // RAG 流程：用户文档 → 文本分块 → 向量嵌入 → 存入 Redis → 用户提问时检索相关文档 → 增强 LLM 回答。
 type RagModelConfig struct {
@@ -279,6 +332,8 @@ type Config struct {
 	MainConfig `toml:"mainConfig"`
 	// 对应 [rabbitmqConfig] 段
 	Rabbitmq `toml:"rabbitmqConfig"`
+	// 对应 [delayConfig] 段
+	DelayConfig `toml:"delayConfig"`
 	// 对应 [ragModelConfig] 段
 	RagModelConfig `toml:"ragModelConfig"`
 	// 对应 [voiceServiceConfig] 段

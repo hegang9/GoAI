@@ -82,6 +82,47 @@ queue = "gopherai.chat.persist.retry.5.v1"
 routingKey = "chat.message.persist.retry.5"
 delayMs = 1800000
 
+# 统一延迟调度链路；旧 retryTiers 会在新链路完成迁移后删除。
+[delayConfig]
+enabled = true
+shortThresholdMs = 60000
+maxDelayHours = 168
+
+# Level 1～60 与 Dispatcher Inbox。
+levelExchange = "gopherai.delay.level"
+levelQueuePrefix = "gopherai.delay.level"
+levelRoutingPrefix = "delay.level"
+dispatcherExchange = "gopherai.delay.dispatcher"
+dispatcherQueue = "gopherai.delay.dispatcher.inbox.v1"
+dispatcherRoutingKey = "delay.dispatcher"
+maxLevel = 60
+confirmTimeoutMs = 3000
+
+# 最终正常广播、消费者组精确回投和最终失败拓扑。
+topicExchange = "gopherai.events"
+redriveExchange = "gopherai.events.redrive"
+deadLetterExchange = "gopherai.events.dlx"
+
+# Dispatcher 背压。
+dispatcherPrefetchCount = 128
+dispatcherReadyCapacity = 128
+
+# MySQL Poller。
+pollIntervalMs = 200
+pollAheadMs = 10000
+leaseDurationMs = 30000
+pollBatchSize = 200
+publishWorkers = 16
+pollerMaxLevel = 10
+
+[[delayConfig.consumerGroups]]
+name = "persistence"
+queue = "gopherai.events.persistence.v1"
+topics = ["chat.message.created.v1"]
+deadLetterQueue = "gopherai.events.persistence.dlq.v1"
+deadLetterRoutingKey = "persistence"
+retryDelaysMs = [10000, 30000, 120000, 600000, 1800000]
+
 [ragModelConfig]
 embeddingModel = "Qwen/Qwen3-Embedding-4B"
 docDir = "./docs"

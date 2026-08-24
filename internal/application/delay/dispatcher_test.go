@@ -191,8 +191,9 @@ func TestDispatcherRunRejectsUnexpectedReadyClose(t *testing.T) {
 func TestDispatcherSubmitExpiredTaskToReady(t *testing.T) {
 	ready := make(chan dispatchItem, 1)
 	dispatcher := &Dispatcher{
-		ready: ready,
-		wheel: newWheel(ready),
+		publisher: &finalPublisherStub{},
+		ready:     ready,
+		wheel:     newWheel(ready),
 	}
 	acked := false
 	task := wheelTask(t, "schedule-submit-expired", time.Now().Add(-time.Second).UnixMilli())
@@ -224,8 +225,9 @@ func TestDispatcherSubmitExpiredTaskToReady(t *testing.T) {
 func TestDispatcherSubmitExpiredTaskHonorsCancellation(t *testing.T) {
 	ready := make(chan dispatchItem)
 	dispatcher := &Dispatcher{
-		ready: ready,
-		wheel: newWheel(ready),
+		publisher: &finalPublisherStub{},
+		ready:     ready,
+		wheel:     newWheel(ready),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -243,8 +245,9 @@ func TestDispatcherSubmitExpiredTaskHonorsCancellation(t *testing.T) {
 func TestDispatcherSubmitFutureTaskToWheel(t *testing.T) {
 	ready := make(chan dispatchItem, 1)
 	dispatcher := &Dispatcher{
-		ready: ready,
-		wheel: newWheel(ready),
+		publisher: &finalPublisherStub{},
+		ready:     ready,
+		wheel:     newWheel(ready),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	wheelDone := make(chan struct{})
@@ -284,8 +287,9 @@ func TestDispatcherSubmitFutureTaskToWheel(t *testing.T) {
 func TestDispatcherSubmitRejectsInvalidInput(t *testing.T) {
 	ready := make(chan dispatchItem, 1)
 	dispatcher := &Dispatcher{
-		ready: ready,
-		wheel: newWheel(ready),
+		publisher: &finalPublisherStub{},
+		ready:     ready,
+		wheel:     newWheel(ready),
 	}
 	validTask := wheelTask(t, "schedule-submit-valid", time.Now().UnixMilli())
 
@@ -299,8 +303,8 @@ func TestDispatcherSubmitRejectsInvalidInput(t *testing.T) {
 		{name: "nil dispatcher", ctx: context.Background(), ack: func() error { return nil }, wantError: "dispatcher is nil"},
 		{name: "nil context", dispatcher: dispatcher, ack: func() error { return nil }, wantError: "context is nil"},
 		{name: "nil ACK", dispatcher: dispatcher, ctx: context.Background(), wantError: "ACK callback is nil"},
-		{name: "nil ready", dispatcher: &Dispatcher{wheel: newWheel(ready)}, ctx: context.Background(), ack: func() error { return nil }, wantError: "ready channel is nil"},
-		{name: "nil wheel", dispatcher: &Dispatcher{ready: ready}, ctx: context.Background(), ack: func() error { return nil }, wantError: "wheel is nil"},
+		{name: "nil ready", dispatcher: &Dispatcher{publisher: &finalPublisherStub{}, wheel: newWheel(ready)}, ctx: context.Background(), ack: func() error { return nil }, wantError: "ready channel is nil"},
+		{name: "nil wheel", dispatcher: &Dispatcher{publisher: &finalPublisherStub{}, ready: ready}, ctx: context.Background(), ack: func() error { return nil }, wantError: "wheel is nil"},
 	}
 
 	for _, tt := range tests {
