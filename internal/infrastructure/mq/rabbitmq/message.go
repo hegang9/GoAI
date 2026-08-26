@@ -73,27 +73,36 @@ func (c *Consumer) Start() {
 	go c.client.Consume(c.decode)
 }
 
-// decode 解码队列消息为领域消息并交给业务处理函数。
-func (c *Consumer) decode(body []byte) error {
+// decodeMessage 将稳定的队列载荷转换为聊天领域消息。
+func decodeMessage(body []byte) (chat.Message, error) {
 	var p payload
 	if err := json.Unmarshal(body, &p); err != nil {
-		return permanentError(fmt.Errorf("decode payload failed: %w", err))
+		return chat.Message{}, permanentError(fmt.Errorf("decode payload failed: %w", err))
 	}
 	if p.SchemaVersion != payloadSchemaVersion {
-		return permanentError(fmt.Errorf(
+		return chat.Message{}, permanentError(fmt.Errorf(
 			"unsupported payload schema version: %d",
 			p.SchemaVersion,
 		))
 	}
 	if p.MessageID == "" {
-		return permanentError(fmt.Errorf("rabbitmq payload message_id is empty"))
+		return chat.Message{}, permanentError(fmt.Errorf("rabbitmq payload message_id is empty"))
 	}
 
-	return c.handle(context.Background(), chat.Message{
+	return chat.Message{
 		ID:        p.MessageID,
 		SessionID: p.SessionID,
 		Content:   p.Content,
 		AccountNo: p.AccountNo,
 		IsUser:    p.IsUser,
-	})
+	}, nil
+}
+
+// decode 解码队列消息并交给业务处理函数。
+func (c *Consumer) decode(body []byte) error {
+	message, err := decodeMessage(body)
+	if err != nil {
+		return err
+	}
+	return c.handle(context.Background(), message)
 }

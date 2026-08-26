@@ -184,7 +184,7 @@ go run ./cmd/planbench -split test -limit 3
 
 RabbitMQ 适配器启动时会按配置幂等声明主链路、五档延迟重试与 DLQ 拓扑；控制台中同名对象的类型或参数不一致会导致启动失败。正常、重试和最终 DLQ 发布均复用 confirmed-publish 流程，使用持久化消息、`mandatory`、publisher confirm 和不可路由检查；消费端使用独立 Channel、显式 prefetch 与手动 ACK。首次瞬时失败按配置进行本地快速重试，仍失败时携带 `x-retry-count` 依次进入五档延迟队列，并增加 0～25% 随机抖动；确定性异常或五次延迟重试耗尽后可靠发布到最终 DLQ。重试或 DLQ 副本收到 Broker confirm 后才 ACK 原消息，系统性异常或可靠发布失败时关闭消费 Channel，使未 ACK 消息重新入队。
 
-RabbitMQ 包的单元测试覆盖错误分类、重试 Header 解析、档位边界、抖动范围、本地快速重试、confirmed-publish 前置校验和 DLQ 消息构造；真实 Exchange/Queue 路由、TTL 回流及 ACK 时序仍需在独立测试 vhost 中执行集成测试。
+RabbitMQ 包的单元测试覆盖消息载荷版本与 ID 校验、错误分类、重试 Header 解析、档位边界、抖动范围、本地快速重试、confirmed-publish 前置校验和 DLQ 消息构造；真实 Exchange/Queue 路由、TTL 回流及 ACK 时序仍需在独立测试 vhost 中执行集成测试。
 
 ### 延迟任务所有权
 
