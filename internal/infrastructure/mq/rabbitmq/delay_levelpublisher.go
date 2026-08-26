@@ -73,7 +73,20 @@ func decodeTask(envelope delayEnvelope) (taskDomain.Task, error) {
 	}, nil
 }
 
-// Delay RabbitMQ 配置与拓扑
+// DelayConsumerGroupConfig 描述消费者组配置
+type DelayConsumerGroupConfig struct {
+	Name string
+	// 该消费者组的业务队列名
+	Queue string
+	// 该消费者组在Topic Exchange上订阅的 routing key
+	Topics []string
+	// 保存死信消息
+	DeadLetterQueue string
+	// 死信路由 Key
+	DeadLetterRoutingKey string
+}
+
+// Delay RabbitMQ 常规配置与拓扑配置
 type DelayConfig struct {
 	// LevelExchange 接收 Level 1～MaxLevel 的延迟任务，
 	// routing key 决定消息进入哪个固定 TTL Queue。
@@ -98,6 +111,18 @@ type DelayConfig struct {
 	// DispatcherRoutingKey 用于把 Level 到期消息和 Level 0
 	// 消息精确路由到 DispatcherQueue。
 	DispatcherRoutingKey string
+
+	// TopicExchange 接收正常业务消息，并按 Topic 路由到消费者组
+	TopicExchange string
+
+	// RedriveExchange 将重试到期消息精确回投到原消费者组
+	RedriveExchange string
+
+	// DeadLetterExchange 死信消息交换机
+	DeadLetterExchange string
+
+	// ConsumerGroups 描述各个消费者组的配置
+	ConsumerGroups []DelayConsumerGroupConfig
 
 	// MaxLevel 是允许声明和发布的最大整秒 Level，
 	// 当前固定为 60，对应最长 60 秒 RabbitMQ 延迟。
