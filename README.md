@@ -206,6 +206,8 @@ RabbitMQ `FinalPublisher` 负责把 Dispatcher 中成熟的任务还原为原始
 
 RabbitMQ `DispatcherConsumer` 使用独立消费 Channel 和手动 ACK 读取 Dispatcher Inbox，并通过 bootstrap 注入的 `Dispatcher.Submit` 转交解码后的 Task 与原 Delivery ACK 回调；prefetch 限制时间轮、ready 和正在最终发布的未 ACK 总量。消费注册、载荷校验或 Submit 失败会让消费循环退出并关闭专用 Channel，所有未 ACK Delivery 由 RabbitMQ 重新入队。
 
+RabbitMQ `GroupConsumer` 使用消费者组专用 Channel、显式 prefetch 和手动 ACK 读取业务 Queue，并将 Delivery 同时恢复为 Handler 使用的聊天消息和延迟重试使用的稳定业务消息；Body 与 AMQP 属性中的 message ID、Topic 和 `x-retry-attempt` 会在调用 Handler 前完成一致性校验。当前阶段仅在 Handler 成功后 ACK；Handler 或元数据处理失败会退出消费并关闭 Channel，使未 ACK 消息重新入队，尚未接入 bootstrap，也尚未在失败分支调用 `ScheduleRetry` 或发布组级 DLQ。
+
 Dispatcher 的本地尾差等待使用应用层时间轮：`NewDispatcher` 校验 FinalPublisher 和 ready 容量并完成两者接线；`Submit` 校验 Task 与 ACK 回调，已到期任务直接写入 ready，未到期任务进入时间轮，两个入口都能在背压时响应 Context 取消。16 个独立 Shard 按稳定 `schedule_id` 哈希分配任务，每个 Shard 使用 100 个槽位和 10ms Tick，单圈覆盖 1 秒，并通过 rounds 兼容更长等待。槽位触发时会再次比较绝对 `TargetAt`，过早任务重新插入，到期任务写入有界 ready channel；`Run` 启动时间轮并同步消费 ready，只有 FinalPublisher 成功后才 ACK 原 Dispatcher Inbox Delivery，发布或 ACK 失败则停止并向外返回错误。时间轮只保存任务和原 Delivery 的 ACK 回调，不执行网络发布，也不会提前 ACK。进程退出时内存状态允许丢失，RabbitMQ 中未 ACK 的 Dispatcher Inbox Delivery 负责重新投递。
 
 `[chatReplayConfig]` 示例：

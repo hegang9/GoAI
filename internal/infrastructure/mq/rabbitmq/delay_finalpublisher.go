@@ -179,8 +179,8 @@ func buildFinalPublishing(task delay.Task) amqp.Publishing {
 	for key, value := range task.Message.Headers {
 		headers[key] = value
 	}
-	headers["x-goai-topic"] = task.Message.Topic
-	headers["x-retry-attempt"] = int64(task.RetryAttempt)
+	headers[messageTopicHeader] = task.Message.Topic
+	headers[retryAttemptHeader] = int64(task.RetryAttempt)
 
 	return amqp.Publishing{
 		Headers:       headers,

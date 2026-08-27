@@ -9,8 +9,13 @@ import (
 	"GopherAI/pkg/logger"
 )
 
-// 版本号
-const payloadSchemaVersion = 1
+const (
+	// payloadSchemaVersion 是聊天消息 JSON 载荷版本。
+	payloadSchemaVersion = 1
+	// messageTopicHeader 和 retryAttemptHeader 是新延迟重试链路的稳定元数据。
+	messageTopicHeader = "x-goai-topic"
+	retryAttemptHeader = "x-retry-attempt"
+)
 
 // payload 是消息在队列中传输的 JSON 载荷，独立于数据库模型，避免持久化字段污染消息体。
 type payload struct {
