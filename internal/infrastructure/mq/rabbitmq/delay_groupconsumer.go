@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	chatDomain "GopherAI/internal/domain/chat"
 	messageDomain "GopherAI/internal/domain/message"
@@ -25,6 +26,23 @@ type GroupConsumer struct {
 
 	// handle 由 bootstrap 注入，当前 persistence 组对应消息持久化。
 	handle func(context.Context, chatDomain.Message) error
+
+	// scheduleRetry 把瞬时失败转交给统一延迟调度链路。
+	scheduleRetry func(
+		ctx context.Context,
+		accountNo string,
+		consumerGroup string,
+		message messageDomain.Message,
+		currentAttempt uint32,
+	) (exhausted bool, err error)
+
+	// publishDeadLetter 把永久失败或重试耗尽消息可靠转入当前组 DLQ。
+	publishDeadLetter func(
+		ctx context.Context,
+		delivery amqp.Delivery,
+		kind FailureKind,
+		cause error,
+	) error
 }
 
 // NewGroupConsumer 创建消费者组专用 Consumer，并配置未 ACK 窗口。
@@ -33,10 +51,22 @@ func NewGroupConsumer(
 	consumerGroup string,
 	queue string,
 	prefetchCount int,
+	deadLetterExchange string,
+	deadLetterRoutingKey string,
+	confirmTimeout time.Duration,
 	handle func(context.Context, chatDomain.Message) error,
+	scheduleRetry func(
+		ctx context.Context,
+		accountNo string,
+		consumerGroup string,
+		message messageDomain.Message,
+		currentAttempt uint32,
+	) (exhausted bool, err error),
 ) (*GroupConsumer, error) {
 	consumerGroup = strings.TrimSpace(consumerGroup)
 	queue = strings.TrimSpace(queue)
+	deadLetterExchange = strings.TrimSpace(deadLetterExchange)
+	deadLetterRoutingKey = strings.TrimSpace(deadLetterRoutingKey)
 
 	switch {
 	case consumerGroup == "":
@@ -45,8 +75,16 @@ func NewGroupConsumer(
 		return nil, errors.New("new group consumer: queue is empty")
 	case prefetchCount <= 0:
 		return nil, errors.New("new group consumer: prefetch count must be positive")
+	case deadLetterExchange == "":
+		return nil, errors.New("new group consumer: dead letter exchange is empty")
+	case deadLetterRoutingKey == "":
+		return nil, errors.New("new group consumer: dead letter routing key is empty")
+	case confirmTimeout <= 0:
+		return nil, errors.New("new group consumer: confirm timeout must be positive")
 	case handle == nil:
 		return nil, errors.New("new group consumer: handler is nil")
+	case scheduleRetry == nil:
+		return nil, errors.New("new group consumer: schedule retry is nil")
 	case client == nil || client.conn == nil || client.conn.IsClosed():
 		return nil, errors.New("new group consumer: RabbitMQ client is unavailable")
 	}
@@ -74,12 +112,32 @@ func NewGroupConsumer(
 		consumerGroup: consumerGroup,
 		queue:         queue,
 		handle:        handle,
+		scheduleRetry: scheduleRetry,
+		publishDeadLetter: func(
+			ctx context.Context,
+			delivery amqp.Delivery,
+			kind FailureKind,
+			cause error,
+		) error {
+			publishCtx, cancel := context.WithTimeout(ctx, confirmTimeout)
+			defer cancel()
+
+			return client.publishGroupDeadLetter(
+				publishCtx,
+				consumerGroup,
+				deadLetterExchange,
+				deadLetterRoutingKey,
+				delivery,
+				kind,
+				cause,
+			)
+		},
 	}
 	initialized = true
 	return consumer, nil
 }
 
-// Run 持续消费消费者组 Queue；完整重试状态机接入前，处理失败会关闭 Channel 并重新入队。
+// Run 持续消费消费者组 Queue；处理失败时按错误类型调度重试或转入组级 DLQ。
 func (c *GroupConsumer) Run(ctx context.Context) error {
 	if c == nil {
 		return errors.New("run group consumer: consumer is nil")
@@ -95,6 +153,12 @@ func (c *GroupConsumer) Run(ctx context.Context) error {
 	}
 	if c.handle == nil {
 		return errors.New("run group consumer: handler is nil")
+	}
+	if c.scheduleRetry == nil {
+		return errors.New("run group consumer: schedule retry is nil")
+	}
+	if c.publishDeadLetter == nil {
+		return errors.New("run group consumer: dead letter publisher is nil")
 	}
 
 	defer func() {
@@ -293,26 +357,66 @@ func decodeGroupDelivery(
 	return businessMessage, retryMessage, attempt, nil
 }
 
+// handleDelivery 仅在业务成功或重试/DLQ 已可靠接管后 ACK 原消息。
 func (c *GroupConsumer) handleDelivery(ctx context.Context, delivery amqp.Delivery) error {
 	businessMessage, retryMessage, currentAttempt, err := decodeGroupDelivery(delivery)
 	if err != nil {
-		return fmt.Errorf("decode group delivery %q: %w", delivery.MessageId, err)
+		// 格式错误无法通过重试恢复，直接进入当前消费者组 DLQ。
+		if publishErr := c.publishDeadLetter(ctx, delivery, FailurePermanent, err); publishErr != nil {
+			return fmt.Errorf("publish invalid group delivery %q to DLQ: %w", delivery.MessageId, publishErr)
+		}
+		if err := delivery.Ack(false); err != nil {
+			return fmt.Errorf("ack dead-lettered group delivery %q: %w", delivery.MessageId, err)
+		}
+		return nil
 	}
 
-	if err := c.handle(ctx, businessMessage); err != nil {
-		// 下一步在这里按错误类型调用 ScheduleRetry 或发布组级 DLQ。
-		return fmt.Errorf(
-			"handle group delivery %q: consumer_group=%q retry_message=%q retry_attempt=%d: %w",
-			delivery.MessageId,
+	processErr := c.handle(ctx, businessMessage)
+	if processErr == nil {
+		if err := delivery.Ack(false); err != nil {
+			return fmt.Errorf("ack group delivery %q: %w", delivery.MessageId, err)
+		}
+		return nil
+	}
+
+	switch classifyError(processErr) {
+	case FailureAbort:
+		return fmt.Errorf("abort group delivery %q: %w", delivery.MessageId, processErr)
+
+	case FailurePermanent:
+		if err := c.publishDeadLetter(ctx, delivery, FailurePermanent, processErr); err != nil {
+			return fmt.Errorf("publish permanent group delivery %q to DLQ: %w", delivery.MessageId, err)
+		}
+
+	case FailureTransient:
+		exhausted, err := c.scheduleRetry(
+			ctx,
+			businessMessage.AccountNo,
 			c.consumerGroup,
-			retryMessage.ID,
+			retryMessage,
 			currentAttempt,
-			err,
 		)
+		if err != nil {
+			return fmt.Errorf("schedule group delivery %q retry: %w", delivery.MessageId, err)
+		}
+		if exhausted {
+			exhaustedErr := fmt.Errorf(
+				"retry exhausted at attempt %d: %w",
+				currentAttempt,
+				processErr,
+			)
+			if err := c.publishDeadLetter(ctx, delivery, FailureTransient, exhaustedErr); err != nil {
+				return fmt.Errorf("publish exhausted group delivery %q to DLQ: %w", delivery.MessageId, err)
+			}
+		}
+
+	default:
+		return fmt.Errorf("group delivery %q has unknown failure kind", delivery.MessageId)
 	}
 
+	// 重试任务或组级 DLQ 已可靠接管，才释放原 Delivery。
 	if err := delivery.Ack(false); err != nil {
-		return fmt.Errorf("ack group delivery %q: %w", delivery.MessageId, err)
+		return fmt.Errorf("ack transferred group delivery %q: %w", delivery.MessageId, err)
 	}
 	return nil
 }
