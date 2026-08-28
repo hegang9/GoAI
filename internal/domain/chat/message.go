@@ -6,6 +6,9 @@
 //   - 与持久化的协作通过 MessageSink / MessageRepository / SessionRepository 端口完成。
 package chat
 
+// MessageCreatedTopic 是聊天消息创建事件的稳定 Topic。
+const MessageCreatedTopic = "chat.message.created.v1"
+
 // Message 是会话中的一条消息领域值对象，独立于数据库模型。
 type Message struct {
 	// 全局唯一标识，支撑幂等

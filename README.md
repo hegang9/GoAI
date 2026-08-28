@@ -132,7 +132,7 @@ go run ./cmd/planbench -split test -limit 3
 - Node.js 与 npm：用于运行 `vue-frontend`
 - MySQL 8.x：用于用户、会话和消息持久化
 - Redis Stack：普通验证码缓存 + RAG RediSearch 向量索引，启动阶段会带超时执行 Ping 校验连接；标准 Redis 不包含 RediSearch
-- RabbitMQ：用于异步消息队列，默认队列名 `Message`
+- RabbitMQ：用于业务 Topic 广播、消费者组竞争消费、统一延迟调度与组级重试
 - 可选外部服务：OpenAI 兼容模型、阿里百炼 Embedding/Chat、百度 TTS、ONNX 图片识别模型
 
 ## 编辑器配置（VS Code / Cursor）
@@ -170,7 +170,8 @@ go run ./cmd/planbench -split test -limit 3
 | `[mainConfig]`         | 后端监听地址与端口，默认 `0.0.0.0:9090`                                                                                                                                                                                                                        |
 | `[mysqlConfig]`        | MySQL 地址、账号、密码、数据库名和字符集                                                                                                                                                                                                                       |
 | `[redisConfig]`        | Redis 地址、密码、DB，以及启动阶段 Ping 超时（`pingTimeoutMs`，<=0 默认 3000）                                                                                                                                                                                 |
-| `[rabbitmqConfig]`     | RabbitMQ 地址、凭证和 vhost；主链路、五档延迟重试、最终 DLQ 的 exchange/queue/routing key；本地重试、抖动、prefetch 与发布确认超时                                                                                                                            |
+| `[rabbitmqConfig]`     | RabbitMQ 地址、凭证和 vhost，以及消费者组实例默认 prefetch                                                                                                                                                                                                    |
+| `[delayConfig]`        | 统一延迟调度开关与长短延迟边界；Level/Dispatcher/Topic/Redrive/DLQ 拓扑；Dispatcher 背压、Poller 参数及各消费者组订阅和重试间隔                                                                                                                               |
 | `[emailConfig]`        | 注册验证码邮件配置                                                                                                                                                                                                                                             |
 | `[jwtConfig]`          | JWT 过期时间、签发信息和密钥                                                                                                                                                                                                                                   |
 | `[ragModelConfig]`     | RAG 使用的嵌入模型名、独立 API Key、文档目录、OpenAI 兼容 Base URL、向量维度，以及检索增强参数（分块大小/重叠、TopK、距离阈值、是否启用多轮 query 改写、是否启用精排 reranker 及其召回放大/截断/最低分阈值、语义切分/上下文增强/块头标签三项分块索引升级开关） |
@@ -182,9 +183,9 @@ go run ./cmd/planbench -split test -limit 3
 | `[mcpConfig]`          | MCP 工具服务 Streamable HTTP 端点（`baseUrl`）；auto 模型懒连接拉取工具集，为空时退化为无工具纯生成                                                                                                                                                            |
 | `[imageServiceConfig]` | ONNX 图像识别模型与标签文件路径（`modelPath` / `labelPath`），随部署环境变化                                                                                                                                                                                   |
 
-RabbitMQ 适配器启动时会按配置幂等声明主链路、五档延迟重试与 DLQ 拓扑；控制台中同名对象的类型或参数不一致会导致启动失败。正常、重试和最终 DLQ 发布均复用 confirmed-publish 流程，使用持久化消息、`mandatory`、publisher confirm 和不可路由检查；消费端使用独立 Channel、显式 prefetch 与手动 ACK。首次瞬时失败按配置进行本地快速重试，仍失败时携带 `x-retry-count` 依次进入五档延迟队列，并增加 0～25% 随机抖动；确定性异常或五次延迟重试耗尽后可靠发布到最终 DLQ。重试或 DLQ 副本收到 Broker confirm 后才 ACK 原消息，系统性异常或可靠发布失败时关闭消费 Channel，使未 ACK 消息重新入队。
+RabbitMQ 消息持久化已经迁移到统一 Topic/consumer group 链路：聊天消息以 `chat.message.created.v1` 发布到 `[delayConfig].topicExchange`，携带稳定 `message_id`、`x-goai-topic` 和 `x-retry-attempt=0`，由 persistence 组竞争消费并写入 MySQL。普通发布、Level 转交、最终回投和组级 DLQ 都使用持久化消息、`mandatory` 与 publisher confirm；只有新的所有者明确接管后才 ACK 原 Delivery。旧 `gopherai.chat` 主 Queue、五档 Retry Queue、`x-retry-count` 和旧 Consumer 已从应用代码及配置中删除，已有 Broker 对象需在确认存量清空后由运维手动删除。
 
-RabbitMQ 包的单元测试覆盖错误分类、重试 Header 解析、档位边界、抖动范围、本地快速重试、confirmed-publish 前置校验和 DLQ 消息构造；真实 Exchange/Queue 路由、TTL 回流及 ACK 时序仍需在独立测试 vhost 中执行集成测试。
+RabbitMQ 单元测试覆盖消息契约、错误分类、拓扑校验、confirmed publish、Dispatcher、时间轮和组级消费状态机。`test/rabbitmq_delay_integration_test.go` 使用随机 `goai.it.*` 拓扑验证同 Topic 多组 fanout、同组多实例竞争、Level TTL + 时间轮 + Redrive 重试闭环，以及组级 DLQ 隔离；默认跳过，确认测试 Broker 可用后执行 `$env:GOAI_RABBITMQ_INTEGRATION='1'; go test ./test -run TestRabbitMQ -v -count=1`，测试结束会删除临时拓扑。
 
 ### 延迟任务所有权
 
@@ -201,6 +202,14 @@ RabbitMQ 包的单元测试覆盖错误分类、重试 Header 解析、档位边
 Poller 在事务提交后才向 Level MQ 发布。只有收到 RabbitMQ Broker confirm 才调用 `MarkLevelQueued`，把任务标记为 `level_queued` 并确认 MQ 已接管；明确收到 NACK 或发送前失败时调用 `Release` 回到 `pending`。发布结果未知时不释放租约，等待过期后使用相同任务 ID 重投，以 at-least-once 的重复换取不丢失。`Cancel` 仅允许按预期版本取消仍处于 `pending` 的任务。
 
 应用层 `internal/application/delay.Poller` 默认每 200ms 提前扫描未来 10 秒内的任务，使用固定 worker 数在 MySQL 抢占事务提交后并发发布 Level MQ。任务按剩余毫秒向下取整选择 Level 0～10；Level Publisher 只有明确返回 `PublishRejectedError` 时 Poller 才释放租约，confirm 超时、连接中断或数据库状态回写失败均保留租约等待恢复。
+
+RabbitMQ `FinalPublisher` 负责把 Dispatcher 中成熟的任务还原为原始业务消息：Topic 目标发布到业务 Topic Exchange，消费者组目标通过 Redrive Exchange 精确回投。发布会保留原始 Body、MessageId、Headers 和 Timestamp，并补充 `x-goai-topic`、`x-retry-attempt`；只有 publisher confirm 为 ACK 且消息未被 `mandatory` 退回时才算成功。Channel 关闭导致的 `acked=false` 与 confirm 超时均按结果未知处理，Dispatcher 不得 ACK 原 Inbox Delivery。新版拓扑声明统一集中在 RabbitMQ `topology.go`：除 Level 与 Dispatcher 拓扑外，还会声明 Topic/Redrive/DLX、消费者组 Queue、组级 DLQ 及其 Binding；bootstrap 会在联网声明前完成配置单位转换和跨组件约束校验，再构造并启动整条链路。
+
+RabbitMQ `DispatcherConsumer` 使用独立消费 Channel 和手动 ACK 读取 Dispatcher Inbox，并通过 bootstrap 注入的 `Dispatcher.Submit` 转交解码后的 Task 与原 Delivery ACK 回调；prefetch 限制时间轮、ready 和正在最终发布的未 ACK 总量。消费注册、载荷校验或 Submit 失败会让消费循环退出并关闭专用 Channel，所有未 ACK Delivery 由 RabbitMQ 重新入队。
+
+RabbitMQ `GroupConsumer` 使用消费者组专用 Channel、显式 prefetch 和手动 ACK 读取业务 Queue，并将 Delivery 同时恢复为 Handler 使用的聊天消息和延迟重试使用的稳定业务消息；Body 与 AMQP 属性中的 message ID、Topic 和 `x-retry-attempt` 会在调用 Handler 前完成一致性校验。业务成功后直接 ACK；瞬时失败由 bootstrap 注入的函数调用 `ScheduleRetry`，永久错误、损坏消息和重试耗尽则通过当前组的 routing key 可靠发布到组级 DLQ。只有重试任务或 DLQ 已收到 Broker confirm 且未被 `mandatory` 退回后才 ACK 原 Delivery；调度失败、DLQ 发布失败和 Abort 均保留未 ACK 状态并关闭当前组的消费 Channel，不影响其他消费者组或核心 Dispatcher 链路。当前 persistence 组 Handler 由 bootstrap 绑定到消息仓储，组消费者 prefetch 暂时复用 `[rabbitmqConfig].prefetchCount`。
+
+Dispatcher 的本地尾差等待使用应用层时间轮：`NewDispatcher` 校验 FinalPublisher 和 ready 容量并完成两者接线；`Submit` 校验 Task 与 ACK 回调，已到期任务直接写入 ready，未到期任务进入时间轮，两个入口都能在背压时响应 Context 取消。16 个独立 Shard 按稳定 `schedule_id` 哈希分配任务，每个 Shard 使用 100 个槽位和 10ms Tick，单圈覆盖 1 秒，并通过 rounds 兼容更长等待。槽位触发时会再次比较绝对 `TargetAt`，过早任务重新插入，到期任务写入有界 ready channel；`Run` 启动时间轮并同步消费 ready，只有 FinalPublisher 成功后才 ACK 原 Dispatcher Inbox Delivery，发布或 ACK 失败则停止并向外返回错误。时间轮只保存任务和原 Delivery 的 ACK 回调，不执行网络发布，也不会提前 ACK。进程退出时内存状态允许丢失，RabbitMQ 中未 ACK 的 Dispatcher Inbox Delivery 负责重新投递。
 
 `[chatReplayConfig]` 示例：
 
@@ -351,7 +360,7 @@ docker compose up -d
 | ----------- | ---------------- | -------- | ------------ | --------------------------------- |
 | MySQL       | `127.0.0.1:3306` | `hegang` | `hg200512hg` | 默认库名 `GopherAI`               |
 | Redis Stack | `127.0.0.1:6379` | -        | -            | 支持 RAG 依赖的 RediSearch        |
-| RabbitMQ    | `127.0.0.1:5672` | `root`   | `123456`     | 管理后台 `http://192.168.71.109:5672` |
+| RabbitMQ    | `127.0.0.1:5672` | `root`   | `123456`     | 管理后台 `http://127.0.0.1:15672` |
 
 常用命令：
 
@@ -385,14 +394,15 @@ go run ./cmd/server
 3. 连接 Redis，构建验证码存储、向量索引存储与 Eino Agent checkpoint 存储。
 4. 构建 RAG 引擎与基于 Eino v0.8.0 ADK 的 AI 模型工厂，连接 RabbitMQ 并创建消息发布器（作为会话消息的持久化 Sink）。
 5. 构建会话领域管理器，并按策略 B 回放最近 N 个活跃会话到内存（`persist=false`，不重复落库）；其余会话在访问时由应用层按需懒加载。
-6. 启动 `Message` 队列消费者，将队列消息通过仓储落库。
-7. 装配应用服务、接口处理器与路由，在独立 goroutine 中通过 `http.Server` 监听 `[mainConfig]` 地址端口。
+6. 映射并校验 `[delayConfig]`，声明统一延迟拓扑，构造 Poller、LevelPublisher、Dispatcher、FinalPublisher、DispatcherConsumer 和各组 GroupConsumer；该配置必须启用，因为 persistence GroupConsumer 已是唯一消息落库消费者。
+7. 装配应用服务、接口处理器与路由；`App.Start` 启动延迟运行时，并在独立 goroutine 中通过 `http.Server` 监听 `[mainConfig]` 地址端口。
 
 后端关闭流程（优雅关闭，由 `App.Shutdown` 负责）：
 
 1. 主协程监听 `SIGINT`（Ctrl+C）/ `SIGTERM`（容器停止）信号。
 2. 收到信号后在 10 秒超时内调用 `http.Server.Shutdown`，停止接收新请求并等待在途请求处理完成。
-3. 依次关闭 RabbitMQ（消费者随连接关闭退出）、Redis、MySQL 连接，释放资源后退出。
+3. 取消延迟运行时 Context，等待 Poller、Dispatcher 和消费者退出，再关闭其专用 Channel。
+4. 依次关闭 RabbitMQ、Redis、MySQL 连接，释放资源后退出。
 
 ## 分层职责说明
 

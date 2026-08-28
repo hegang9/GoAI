@@ -35,52 +35,49 @@ port = 5672
 username = "lab"
 password = "hg200512hg"
 vhost = "/"
-# 主链路
-mainExchange = "gopherai.chat"
-mainQueue = "gopherai.chat.persist.v1"
-mainRoutingKey = "chat.message.persist.v1"
-
-# 延迟重试
-retryExchange = "gopherai.chat.retry"
-localRetryDelaysMs = [100, 500]
-# 抖动比例
-retryJitterPercent = 25
-# 最大重试次数
-maxRetries = 5
-
-# 最终死信
-deadLetterExchange = "gopherai.chat.dlx"
-deadLetterQueue = "gopherai.chat.persist.dlq.v1"
-deadLetterRoutingKey = "chat.message.persist.dead.v1"
-
-# 消费窗口与发布确认
+# 消费者组实例默认未 ACK 窗口
 prefetchCount = 20
-publishConfirmTimeoutMs = 3000
 
-[[rabbitmqConfig.retryTiers]]
-queue = "gopherai.chat.persist.retry.1.v1"
-routingKey = "chat.message.persist.retry.1"
-delayMs = 10000
+# 统一延迟调度与消费者组重试链路。
+[delayConfig]
+enabled = true
+shortThresholdMs = 60000
+maxDelayHours = 168
 
-[[rabbitmqConfig.retryTiers]]
-queue = "gopherai.chat.persist.retry.2.v1"
-routingKey = "chat.message.persist.retry.2"
-delayMs = 30000
+# Level 1～60 与 Dispatcher Inbox。
+levelExchange = "gopherai.delay.level"
+levelQueuePrefix = "gopherai.delay.level"
+levelRoutingPrefix = "delay.level"
+dispatcherExchange = "gopherai.delay.dispatcher"
+dispatcherQueue = "gopherai.delay.dispatcher.inbox.v1"
+dispatcherRoutingKey = "delay.dispatcher"
+maxLevel = 60
+confirmTimeoutMs = 3000
 
-[[rabbitmqConfig.retryTiers]]
-queue = "gopherai.chat.persist.retry.3.v1"
-routingKey = "chat.message.persist.retry.3"
-delayMs = 120000
+# 最终正常广播、消费者组精确回投和最终失败拓扑。
+topicExchange = "gopherai.events"
+redriveExchange = "gopherai.events.redrive"
+deadLetterExchange = "gopherai.events.dlx"
 
-[[rabbitmqConfig.retryTiers]]
-queue = "gopherai.chat.persist.retry.4.v1"
-routingKey = "chat.message.persist.retry.4"
-delayMs = 600000
+# Dispatcher 背压。
+dispatcherPrefetchCount = 128
+dispatcherReadyCapacity = 128
 
-[[rabbitmqConfig.retryTiers]]
-queue = "gopherai.chat.persist.retry.5.v1"
-routingKey = "chat.message.persist.retry.5"
-delayMs = 1800000
+# MySQL Poller。
+pollIntervalMs = 200
+pollAheadMs = 10000
+leaseDurationMs = 30000
+pollBatchSize = 200
+publishWorkers = 16
+pollerMaxLevel = 10
+
+[[delayConfig.consumerGroups]]
+name = "persistence"
+queue = "gopherai.events.persistence.v1"
+topics = ["chat.message.created.v1"]
+deadLetterQueue = "gopherai.events.persistence.dlq.v1"
+deadLetterRoutingKey = "persistence"
+retryDelaysMs = [10000, 30000, 120000, 600000, 1800000]
 
 [ragModelConfig]
 embeddingModel = "Qwen/Qwen3-Embedding-4B"

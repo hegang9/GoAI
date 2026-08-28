@@ -88,13 +88,6 @@ type JwtConfig struct {
 	Key string `toml:"key"`
 }
 
-// RabbitmqRetryTier 描述一档延迟重试队列及其基础延迟。
-type RabbitmqRetryTier struct {
-	Queue      string `toml:"queue"`
-	RoutingKey string `toml:"routingKey"`
-	DelayMs    int    `toml:"delayMs"`
-}
-
 // Rabbitmq RabbitMQ 消息队列连接配置。
 // RabbitMQ 在本项目中用于异步消息持久化：
 // AI 回复消息先发送到队列，再由消费者异步写入 MySQL，解耦请求处理和数据库写入。
@@ -109,25 +102,61 @@ type Rabbitmq struct {
 	RabbitmqPassword string `toml:"password"`
 	// 虚拟主机（vhost），用于多租户隔离，默认 "/"。
 	RabbitmqVhost string `toml:"vhost"`
-	// RabbitmqQueue 仅用于兼容尚未迁移的启动代码，完成传输层改造后删除。
-	RabbitmqQueue string `toml:"queue"`
-	// 主消息链路。
-	RabbitmqMainExchange   string `toml:"mainExchange"`
-	RabbitmqMainQueue      string `toml:"mainQueue"`
-	RabbitmqMainRoutingKey string `toml:"mainRoutingKey"`
-	// 延迟重试策略。
-	RabbitmqRetryExchange      string              `toml:"retryExchange"`
-	RabbitmqRetryTiers         []RabbitmqRetryTier `toml:"retryTiers"`
-	RabbitmqLocalRetryDelaysMs []int               `toml:"localRetryDelaysMs"`
-	RabbitmqRetryJitterPercent int                 `toml:"retryJitterPercent"`
-	RabbitmqMaxRetries         int                 `toml:"maxRetries"`
-	// 最终死信链路。
-	RabbitmqDeadLetterExchange   string `toml:"deadLetterExchange"`
-	RabbitmqDeadLetterQueue      string `toml:"deadLetterQueue"`
-	RabbitmqDeadLetterRoutingKey string `toml:"deadLetterRoutingKey"`
-	// 消费窗口与发布确认超时。
-	RabbitmqPrefetchCount           int `toml:"prefetchCount"`
-	RabbitmqPublishConfirmTimeoutMs int `toml:"publishConfirmTimeoutMs"`
+	// RabbitmqPrefetchCount 暂时作为各消费者组实例的默认未 ACK 窗口。
+	RabbitmqPrefetchCount int `toml:"prefetchCount"`
+}
+
+// DelayConsumerGroupConfig 描述一个 RabbitMQ 消费者组的拓扑和重试策略。
+type DelayConsumerGroupConfig struct {
+	// Name 同时作为 Redrive Exchange 精确回投该组的 routing key。
+	Name string `toml:"name"`
+	// Queue 由同组的所有 Consumer 实例竞争消费。
+	Queue string `toml:"queue"`
+	// Topics 是该组在 Topic Exchange 上订阅的 routing key。
+	Topics []string `toml:"topics"`
+	// DeadLetterQueue 独立保存该组永久失败或重试耗尽的消息。
+	DeadLetterQueue      string `toml:"deadLetterQueue"`
+	DeadLetterRoutingKey string `toml:"deadLetterRoutingKey"`
+	// RetryDelaysMs 按顺序定义第 1、2……次业务重试的等待时间。
+	RetryDelaysMs []int `toml:"retryDelaysMs"`
+}
+
+// DelayConfig 描述统一延迟调度链路；当前仅负责解码，运行时校验由各组件构造器完成。
+type DelayConfig struct {
+	Enabled bool `toml:"enabled"`
+
+	// DelayService 的长短延迟边界。
+	ShortThresholdMs int64 `toml:"shortThresholdMs"`
+	MaxDelayHours    int   `toml:"maxDelayHours"`
+
+	// Level Queue 与 Dispatcher Inbox 拓扑。
+	LevelExchange        string `toml:"levelExchange"`
+	LevelQueuePrefix     string `toml:"levelQueuePrefix"`
+	LevelRoutingPrefix   string `toml:"levelRoutingPrefix"`
+	DispatcherExchange   string `toml:"dispatcherExchange"`
+	DispatcherQueue      string `toml:"dispatcherQueue"`
+	DispatcherRoutingKey string `toml:"dispatcherRoutingKey"`
+	MaxLevel             int    `toml:"maxLevel"`
+	ConfirmTimeoutMs     int    `toml:"confirmTimeoutMs"`
+
+	// FinalPublisher 的正常广播、精确回投与最终失败拓扑。
+	TopicExchange      string `toml:"topicExchange"`
+	RedriveExchange    string `toml:"redriveExchange"`
+	DeadLetterExchange string `toml:"deadLetterExchange"`
+
+	// Dispatcher 的未 ACK 窗口和本地 ready channel 容量。
+	DispatcherPrefetchCount int `toml:"dispatcherPrefetchCount"`
+	DispatcherReadyCapacity int `toml:"dispatcherReadyCapacity"`
+
+	// MySQL Poller 的扫描、租约和发布并发参数。
+	PollIntervalMs  int `toml:"pollIntervalMs"`
+	PollAheadMs     int `toml:"pollAheadMs"`
+	LeaseDurationMs int `toml:"leaseDurationMs"`
+	PollBatchSize   int `toml:"pollBatchSize"`
+	PublishWorkers  int `toml:"publishWorkers"`
+	PollerMaxLevel  int `toml:"pollerMaxLevel"`
+
+	ConsumerGroups []DelayConsumerGroupConfig `toml:"consumerGroups"`
 }
 
 // RagModelConfig RAG（检索增强生成）模型配置。
@@ -295,6 +324,8 @@ type Config struct {
 	MainConfig `toml:"mainConfig"`
 	// 对应 [rabbitmqConfig] 段
 	Rabbitmq `toml:"rabbitmqConfig"`
+	// 对应 [delayConfig] 段
+	DelayConfig `toml:"delayConfig"`
 	// 对应 [ragModelConfig] 段
 	RagModelConfig `toml:"ragModelConfig"`
 	// 对应 [voiceServiceConfig] 段
