@@ -95,17 +95,17 @@ func (c *Client) publishGroupDeadLetter(
 		return err
 	}
 
-	// retryChannel 的 confirm 和 mandatory return 必须串行归属当前消息。
-	c.retryMu.Lock()
-	defer c.retryMu.Unlock()
+	// 死信 Channel 的 confirm 和 mandatory return 必须串行归属当前消息。
+	c.deadLetterMu.Lock()
+	defer c.deadLetterMu.Unlock()
 
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("publish group dead letter cancelled before publish: %w", err)
 	}
 	if err := publishConfirmed(
 		ctx,
-		c.retryChannel,
-		c.retryReturns,
+		c.deadLetterChannel,
+		c.deadLetterReturns,
 		exchange,
 		routingKey,
 		message,

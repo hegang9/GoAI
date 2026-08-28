@@ -181,23 +181,7 @@ func TestBootstrapConstants_MigratedToConfig(t *testing.T) {
 pingTimeoutMs = 5000
 
 [rabbitmqConfig]
-mainExchange = "gopherai.chat"
-mainQueue = "gopherai.chat.persist.v1"
-mainRoutingKey = "chat.message.persist.v1"
-retryExchange = "gopherai.chat.retry"
-localRetryDelaysMs = [100, 500]
-retryJitterPercent = 25
-maxRetries = 5
-deadLetterExchange = "gopherai.chat.dlx"
-deadLetterQueue = "gopherai.chat.persist.dlq.v1"
-deadLetterRoutingKey = "chat.message.persist.dead.v1"
 prefetchCount = 20
-publishConfirmTimeoutMs = 3000
-
-[[rabbitmqConfig.retryTiers]]
-queue = "gopherai.chat.persist.retry.1.v1"
-routingKey = "chat.message.persist.retry.1"
-delayMs = 10000
 
 [mcpConfig]
 baseUrl = "http://10.0.0.2:8081/mcp"
@@ -213,17 +197,8 @@ labelPath = "/data/labels.txt"
 	if cfg.RedisPingTimeoutMs != 5000 {
 		t.Fatalf("RedisPingTimeoutMs = %d, want 5000", cfg.RedisPingTimeoutMs)
 	}
-	if cfg.RabbitmqMainQueue != "gopherai.chat.persist.v1" {
-		t.Fatalf("RabbitmqMainQueue = %q, want gopherai.chat.persist.v1", cfg.RabbitmqMainQueue)
-	}
-	if len(cfg.RabbitmqRetryTiers) != 1 {
-		t.Fatalf("len(RabbitmqRetryTiers) = %d, want 1", len(cfg.RabbitmqRetryTiers))
-	}
-	if cfg.RabbitmqRetryTiers[0].DelayMs != 10000 {
-		t.Fatalf("retry tier delay = %d, want 10000", cfg.RabbitmqRetryTiers[0].DelayMs)
-	}
-	if cfg.RabbitmqDeadLetterQueue != "gopherai.chat.persist.dlq.v1" {
-		t.Fatalf("RabbitmqDeadLetterQueue = %q, want gopherai.chat.persist.dlq.v1", cfg.RabbitmqDeadLetterQueue)
+	if cfg.RabbitmqPrefetchCount != 20 {
+		t.Fatalf("RabbitmqPrefetchCount = %d, want 20", cfg.RabbitmqPrefetchCount)
 	}
 	if cfg.McpConfig.BaseURL != "http://10.0.0.2:8081/mcp" {
 		t.Fatalf("McpConfig.BaseURL = %q, want configured mcp base url", cfg.McpConfig.BaseURL)

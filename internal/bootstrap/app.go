@@ -45,6 +45,7 @@ const redisPingTimeoutDefault = 3 * time.Second
 type App struct {
 	server *http.Server
 	rabbit *rabbitmq.Client
+	delay  *delayRuntime
 	redis  *redisCli.Client
 	db     *gorm.DB
 }
@@ -55,6 +56,9 @@ func New() (*App, error) {
 	conf := config.GetConfig()
 	if conf == nil {
 		return nil, errors.New("load config failed")
+	}
+	if !conf.DelayConfig.Enabled {
+		return nil, errors.New("delay runtime must be enabled for RabbitMQ message persistence")
 	}
 
 	// —— 持久化（MySQL） ——
@@ -157,44 +161,31 @@ func New() (*App, error) {
 		Planner:       planner,
 	}, ragEngine)
 
-	// —— 消息队列（RabbitMQ）：发布端作为会话消息 Sink，消费端落库 ——
-	retryTiers := make([]rabbitmq.RetryTier, 0, len(conf.RabbitmqRetryTiers))
-	for _, tier := range conf.RabbitmqRetryTiers {
-		retryTiers = append(retryTiers, rabbitmq.RetryTier{
-			Queue:      tier.Queue,
-			RoutingKey: tier.RoutingKey,
-			DelayMs:    tier.DelayMs,
-		})
-	}
-
+	// —— 消息队列（RabbitMQ）：业务消息统一进入 Topic Exchange 和消费者组链路 ——
 	rabbit, err := rabbitmq.Connect(rabbitmq.Config{
 		Host:     conf.RabbitmqHost,
 		Port:     conf.RabbitmqPort,
 		Username: conf.RabbitmqUsername,
 		Password: conf.RabbitmqPassword,
 		Vhost:    conf.RabbitmqVhost,
-
-		MainExchange:   conf.RabbitmqMainExchange,
-		MainQueue:      conf.RabbitmqMainQueue,
-		MainRoutingKey: conf.RabbitmqMainRoutingKey,
-
-		RetryExchange:      conf.RabbitmqRetryExchange,
-		RetryTiers:         retryTiers,
-		RetryJitterPercent: conf.RabbitmqRetryJitterPercent,
-		MaxRetries:         conf.RabbitmqMaxRetries,
-		LocalRetryDelaysMs: conf.RabbitmqLocalRetryDelaysMs,
-
-		DeadLetterExchange:   conf.RabbitmqDeadLetterExchange,
-		DeadLetterQueue:      conf.RabbitmqDeadLetterQueue,
-		DeadLetterRoutingKey: conf.RabbitmqDeadLetterRoutingKey,
-
-		PrefetchCount:           conf.RabbitmqPrefetchCount,
-		PublishConfirmTimeoutMs: conf.RabbitmqPublishConfirmTimeoutMs,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("init rabbitmq failed: %w", err)
 	}
-	publisher := rabbitmq.NewPublisher(rabbit)
+	publisher, err := rabbitmq.NewPublisher(
+		rabbit,
+		conf.DelayConfig.TopicExchange,
+		domainchat.MessageCreatedTopic,
+		time.Duration(conf.DelayConfig.ConfirmTimeoutMs)*time.Millisecond,
+	)
+	if err != nil {
+		cleanupErr := errors.Join(
+			rabbit.Close(),
+			redisstore.Close(rdb),
+			persistence.Close(db),
+		)
+		return nil, errors.Join(fmt.Errorf("init rabbitmq publisher failed: %w", err), cleanupErr)
+	}
 	logger.Info("rabbitmq publisher init success")
 
 	// —— 会话领域管理器（取代全局单例） ——
@@ -203,15 +194,13 @@ func New() (*App, error) {
 	// 启动时仅回放最近 N 个活跃会话，其余会话在运行时按需懒加载。
 	replayCfg := normalizeChatReplayConfig(conf.ChatReplayConfig)
 	if err := replayRecentSessions(manager, sessionRepo, messageRepo, replayCfg); err != nil {
-		return nil, fmt.Errorf("replay recent sessions failed: %w", err)
+		cleanupErr := errors.Join(
+			rabbit.Close(),
+			redisstore.Close(rdb),
+			persistence.Close(db),
+		)
+		return nil, errors.Join(fmt.Errorf("replay recent sessions failed: %w", err), cleanupErr)
 	}
-
-	// 启动消费者：把队列中的消息落库（消费端 -> 仓储）。
-	consumer := rabbitmq.NewConsumer(rabbit, func(ctx context.Context, msg domainchat.Message) error {
-		return messageRepo.Create(ctx, msg)
-	})
-	consumer.Start()
-	logger.Info("rabbitmq consumer init success")
 
 	// —— 其余基础设施适配器 ——
 	hasher := security.NewBcryptHasher()
@@ -245,11 +234,41 @@ func New() (*App, error) {
 		Handler: engine,
 	}
 
-	return &App{server: server, rabbit: rabbit, redis: rdb, db: db}, nil
+	delayRuntime, err := newDelayRuntime(
+		conf.DelayConfig,
+		conf.RabbitmqPrefetchCount,
+		rabbit,
+		db,
+		map[string]func(context.Context, domainchat.Message) error{
+			"persistence": messageRepo.Create,
+		},
+	)
+	if err != nil {
+		cleanupErr := errors.Join(
+			rabbit.Close(),
+			redisstore.Close(rdb),
+			persistence.Close(db),
+		)
+		return nil, errors.Join(fmt.Errorf("init delay runtime failed: %w", err), cleanupErr)
+	}
+	if delayRuntime != nil {
+		logger.Info("delay runtime init success")
+	}
+
+	return &App{
+		server: server,
+		rabbit: rabbit,
+		delay:  delayRuntime,
+		redis:  rdb,
+		db:     db,
+	}, nil
 }
 
-// Start 在独立 goroutine 中启动 HTTP 服务。
+// Start 启动延迟运行时，并在独立 goroutine 中启动 HTTP 服务。
 func (a *App) Start() {
+	if a.delay != nil {
+		a.delay.Start()
+	}
 	go func() {
 		logger.Info("HTTP server starting", "addr", a.server.Addr)
 		// Shutdown 触发时返回 ErrServerClosed，属正常退出。
@@ -259,11 +278,18 @@ func (a *App) Start() {
 	}()
 }
 
-// Shutdown 按依赖反序释放资源：先停 HTTP，再关 RabbitMQ、Redis、MySQL。
+// Shutdown 按依赖反序释放资源：先停 HTTP 和延迟运行时，再关 RabbitMQ、Redis、MySQL。
 func (a *App) Shutdown(ctx context.Context) {
 	logger.Info("shutdown: stopping HTTP server")
 	if err := a.server.Shutdown(ctx); err != nil {
 		logger.Error("shutdown: HTTP server shutdown failed", "err", err)
+	}
+
+	if a.delay != nil {
+		logger.Info("shutdown: stopping delay runtime")
+		if err := a.delay.Shutdown(ctx); err != nil {
+			logger.Error("shutdown: delay runtime shutdown failed", "err", err)
+		}
 	}
 
 	logger.Info("shutdown: closing RabbitMQ")

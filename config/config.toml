@@ -35,54 +35,10 @@ port = 5672
 username = "lab"
 password = "hg200512hg"
 vhost = "/"
-# 主链路
-mainExchange = "gopherai.chat"
-mainQueue = "gopherai.chat.persist.v1"
-mainRoutingKey = "chat.message.persist.v1"
-
-# 延迟重试
-retryExchange = "gopherai.chat.retry"
-localRetryDelaysMs = [100, 500]
-# 抖动比例
-retryJitterPercent = 25
-# 最大重试次数
-maxRetries = 5
-
-# 最终死信
-deadLetterExchange = "gopherai.chat.dlx"
-deadLetterQueue = "gopherai.chat.persist.dlq.v1"
-deadLetterRoutingKey = "chat.message.persist.dead.v1"
-
-# 消费窗口与发布确认
+# 消费者组实例默认未 ACK 窗口
 prefetchCount = 20
-publishConfirmTimeoutMs = 3000
 
-[[rabbitmqConfig.retryTiers]]
-queue = "gopherai.chat.persist.retry.1.v1"
-routingKey = "chat.message.persist.retry.1"
-delayMs = 10000
-
-[[rabbitmqConfig.retryTiers]]
-queue = "gopherai.chat.persist.retry.2.v1"
-routingKey = "chat.message.persist.retry.2"
-delayMs = 30000
-
-[[rabbitmqConfig.retryTiers]]
-queue = "gopherai.chat.persist.retry.3.v1"
-routingKey = "chat.message.persist.retry.3"
-delayMs = 120000
-
-[[rabbitmqConfig.retryTiers]]
-queue = "gopherai.chat.persist.retry.4.v1"
-routingKey = "chat.message.persist.retry.4"
-delayMs = 600000
-
-[[rabbitmqConfig.retryTiers]]
-queue = "gopherai.chat.persist.retry.5.v1"
-routingKey = "chat.message.persist.retry.5"
-delayMs = 1800000
-
-# 统一延迟调度链路；旧 retryTiers 会在新链路完成迁移后删除。
+# 统一延迟调度与消费者组重试链路。
 [delayConfig]
 enabled = true
 shortThresholdMs = 60000

@@ -1,13 +1,86 @@
 package rabbitmq
 
 import (
-	"context"
-	"errors"
+	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"GopherAI/internal/domain/chat"
 )
+
+func TestBuildTopicPublishing(t *testing.T) {
+	timestamp := time.Date(2026, 8, 28, 10, 30, 0, 0, time.FixedZone("CST", 8*60*60))
+	message, err := buildTopicPublishing(chat.Message{
+		ID:        "message-1",
+		SessionID: "session-1",
+		Content:   "hello",
+		AccountNo: "account-1",
+		IsUser:    true,
+	}, "chat.message.created.v1", timestamp)
+	if err != nil {
+		t.Fatalf("buildTopicPublishing() error = %v", err)
+	}
+
+	if message.MessageId != "message-1" ||
+		message.Type != "chat.message.created.v1" ||
+		message.ContentType != "application/json" ||
+		message.Timestamp != timestamp.UTC() {
+		t.Fatalf("buildTopicPublishing() message = %+v", message)
+	}
+	if got := message.Headers[messageTopicHeader]; got != "chat.message.created.v1" {
+		t.Fatalf("topic header = %#v, want chat.message.created.v1", got)
+	}
+	if got := message.Headers[retryAttemptHeader]; got != int64(0) {
+		t.Fatalf("retry attempt header = %#v, want int64(0)", got)
+	}
+	if _, exists := message.Headers["x-retry-count"]; exists {
+		t.Fatal("legacy retry count header must not be published")
+	}
+
+	var body payload
+	if err := json.Unmarshal(message.Body, &body); err != nil {
+		t.Fatalf("decode publishing body: %v", err)
+	}
+	if body.SchemaVersion != payloadSchemaVersion ||
+		body.MessageID != "message-1" ||
+		body.SessionID != "session-1" ||
+		body.Content != "hello" ||
+		body.AccountNo != "account-1" ||
+		!body.IsUser {
+		t.Fatalf("publishing body = %+v", body)
+	}
+}
+
+func TestValidatePublisherConfig(t *testing.T) {
+	tests := []struct {
+		name      string
+		exchange  string
+		topic     string
+		timeout   time.Duration
+		wantError string
+	}{
+		{name: "valid", exchange: "gopherai.events", topic: "chat.message.created.v1", timeout: 3 * time.Second},
+		{name: "empty exchange", topic: "chat.message.created.v1", timeout: time.Second, wantError: "exchange"},
+		{name: "empty topic", exchange: "gopherai.events", timeout: time.Second, wantError: "topic"},
+		{name: "invalid timeout", exchange: "gopherai.events", topic: "chat.message.created.v1", wantError: "timeout"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validatePublisherConfig(test.exchange, test.topic, test.timeout)
+			if test.wantError == "" {
+				if err != nil {
+					t.Fatalf("validatePublisherConfig() error = %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("validatePublisherConfig() error = %v, want %q", err, test.wantError)
+			}
+		})
+	}
+}
 
 func TestDecodeMessage(t *testing.T) {
 	body := []byte(`{
@@ -73,30 +146,5 @@ func TestDecodeMessageRejectsInvalidPayload(t *testing.T) {
 				)
 			}
 		})
-	}
-}
-
-func TestConsumerDecodeDelegatesToHandler(t *testing.T) {
-	handlerError := errors.New("store message failed")
-	called := false
-	consumer := &Consumer{
-		handle: func(_ context.Context, message chat.Message) error {
-			called = true
-			if message.ID != "message-1" {
-				t.Fatalf("handler message ID = %q, want message-1", message.ID)
-			}
-			return handlerError
-		},
-	}
-
-	err := consumer.decode([]byte(`{
-		"schema_version": 1,
-		"message_id": "message-1"
-	}`))
-	if !errors.Is(err, handlerError) {
-		t.Fatalf("Consumer.decode() error = %v, want handler error", err)
-	}
-	if !called {
-		t.Fatal("Consumer.decode() did not call handler")
 	}
 }

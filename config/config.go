@@ -88,13 +88,6 @@ type JwtConfig struct {
 	Key string `toml:"key"`
 }
 
-// RabbitmqRetryTier 描述一档延迟重试队列及其基础延迟。
-type RabbitmqRetryTier struct {
-	Queue      string `toml:"queue"`
-	RoutingKey string `toml:"routingKey"`
-	DelayMs    int    `toml:"delayMs"`
-}
-
 // Rabbitmq RabbitMQ 消息队列连接配置。
 // RabbitMQ 在本项目中用于异步消息持久化：
 // AI 回复消息先发送到队列，再由消费者异步写入 MySQL，解耦请求处理和数据库写入。
@@ -109,25 +102,8 @@ type Rabbitmq struct {
 	RabbitmqPassword string `toml:"password"`
 	// 虚拟主机（vhost），用于多租户隔离，默认 "/"。
 	RabbitmqVhost string `toml:"vhost"`
-	// RabbitmqQueue 仅用于兼容尚未迁移的启动代码，完成传输层改造后删除。
-	RabbitmqQueue string `toml:"queue"`
-	// 主消息链路。
-	RabbitmqMainExchange   string `toml:"mainExchange"`
-	RabbitmqMainQueue      string `toml:"mainQueue"`
-	RabbitmqMainRoutingKey string `toml:"mainRoutingKey"`
-	// 延迟重试策略。
-	RabbitmqRetryExchange      string              `toml:"retryExchange"`
-	RabbitmqRetryTiers         []RabbitmqRetryTier `toml:"retryTiers"`
-	RabbitmqLocalRetryDelaysMs []int               `toml:"localRetryDelaysMs"`
-	RabbitmqRetryJitterPercent int                 `toml:"retryJitterPercent"`
-	RabbitmqMaxRetries         int                 `toml:"maxRetries"`
-	// 最终死信链路。
-	RabbitmqDeadLetterExchange   string `toml:"deadLetterExchange"`
-	RabbitmqDeadLetterQueue      string `toml:"deadLetterQueue"`
-	RabbitmqDeadLetterRoutingKey string `toml:"deadLetterRoutingKey"`
-	// 消费窗口与发布确认超时。
-	RabbitmqPrefetchCount           int `toml:"prefetchCount"`
-	RabbitmqPublishConfirmTimeoutMs int `toml:"publishConfirmTimeoutMs"`
+	// RabbitmqPrefetchCount 暂时作为各消费者组实例的默认未 ACK 窗口。
+	RabbitmqPrefetchCount int `toml:"prefetchCount"`
 }
 
 // DelayConsumerGroupConfig 描述一个 RabbitMQ 消费者组的拓扑和重试策略。
