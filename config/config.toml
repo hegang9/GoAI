@@ -166,7 +166,8 @@ timeoutMs = 12000
 [mcpConfig]
 # MCP Server 的 Streamable HTTP 端点；auto 模型懒连接此地址拉取工具集注入 ReAct Agent
 # 为空时退化为无工具纯生成；Server 临时不可用时本次降级，下次调用自动重试
-baseUrl = "http://localhost:8081/mcp"
+# baseUrl = "http://localhost:8081/mcp"
+baseUrl = "https://docs.mcp.cloudflare.com/mcp"
 
 [imageServiceConfig]
 # ONNX 图像识别模型文件路径（随部署环境变化）
