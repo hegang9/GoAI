@@ -13,28 +13,29 @@ import (
 	"GopherAI/pkg/logger"
 
 	openaiext "github.com/cloudwego/eino-ext/components/model/openai"
+	"github.com/cloudwego/eino/adk"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
-	"github.com/cloudwego/eino/flow/agent/react"
 	"github.com/cloudwego/eino/schema"
 	mcpcli "github.com/mark3labs/mcp-go/client"
 )
 
-// autoSystemPrompt 作为 ReAct Agent 的人设/路由说明：工具默认开放，由模型在生成中自主决定是否调用。
+// autoSystemPrompt 是 ADK ChatModelAgent 的基础指令：工具默认开放，由模型自主决定是否调用。
 const autoSystemPrompt = `你是一个智能助手，可在需要时调用工具获取实时信息（如天气）。
 请根据用户问题自行决定是否调用工具；不需要工具时直接用自然语言回答。`
 
 // AutoRouterModel 是统一自动编排模型，实现 domain/chat.Model 端口。
 //
-// Phase 3 形态：ReAct Agent（ToolCallingModel + 默认 MCP 工具集 + 系统提示 MessageModifier）
-// 叠加 RetrievalModifier（进入 Agent 前的一次性检索增强）。
+// 当前形态：Eino ADK ChatModelAgent（ToolCallingModel + 默认 MCP 工具集）
+// 叠加 RetrievalModifier、官方 Summarization/Reduction 与 Runner checkpoint。
 // RAGModel/MCPModel 已退役，工厂只保留 "auto"。
 //
 // 单次请求主路径：
-//  1. ensureAgent —— 懒建 ReAct Agent（含可选 MCP 工具）
-//  2. retrieval.Modify —— Planner 决策 + 一次性检索增强
-//  3. agent.Generate/Stream —— 模型自主决定是否调工具并产出回复
+//  1. ensureAgent —— 懒建 ADK Agent（含可选 MCP 工具和上下文中间件）
+//  2. prepareMemoryContext —— 恢复核心记忆、会话摘要与水位后原文
+//  3. retrieval.ModifyPrepared —— Planner 决策 + 一次性检索增强
+//  4. Runner.Run —— 模型自主决定是否调工具并产出回复
 //
 // 执行矩阵（系统只分叉 need_retrieval，工具是否调用由模型自主决定）：
 //   - need_retrieval=false → 直接生成（可能调工具）
@@ -51,10 +52,17 @@ type AutoRouterModel struct {
 
 	// mu 保护懒初始化的并发安全。
 	mu sync.Mutex
-	// agent 懒构建的 ReAct Agent；为 nil 表示尚未完成初始化。
-	agent *react.Agent
+	// agent 懒构建的 Eino ADK ChatModelAgent；为 nil 表示尚未完成初始化。
+	agent *adk.ChatModelAgent
 	// mcpClient 懒连接的 MCP 客户端，随 agent 一同初始化，供关闭时释放。
 	mcpClient *mcpcli.Client
+
+	// contextRepo 持久化官方 Summarization 生成的会话摘要与核心记忆。
+	contextRepo chat.ContextRepository
+	// contextCfg 控制摘要、近期轮次与工具结果清理阈值。
+	contextCfg ContextConfig
+	// checkpointStore 由 Eino Runner 在 interrupt 时保存可恢复运行状态。
+	checkpointStore adk.CheckPointStore
 }
 
 // NewAutoRouterModel 创建自动编排模型实例。
@@ -62,7 +70,15 @@ type AutoRouterModel struct {
 // 仅初始化 LLM 与 RetrievalModifier，不连接 MCP——工具侧在首次 Generate/Stream 时懒加载。
 // planner 为 nil 时（plannerConfig.enabled=false）退化为「总是不检索的纯生成」，
 // 行为等价于普通对话模型，保证 planner 不可用时链路不中断。
-func NewAutoRouterModel(ctx context.Context, accountNo, modelName, baseURL, apiKey, mcpBaseURL string, planner *Planner, engine *raginfra.Engine) (*AutoRouterModel, error) {
+func NewAutoRouterModel(
+	ctx context.Context,
+	accountNo, modelName, baseURL, apiKey, mcpBaseURL string,
+	planner *Planner,
+	engine *raginfra.Engine,
+	contextRepo chat.ContextRepository,
+	contextCfg ContextConfig,
+	checkpointStore adk.CheckPointStore,
+) (*AutoRouterModel, error) {
 	// 1) 创建主回答模型（具备 tool calling）
 	llm, err := openaiext.NewChatModel(ctx, &openaiext.ChatModelConfig{
 		BaseURL: baseURL,
@@ -79,23 +95,26 @@ func NewAutoRouterModel(ctx context.Context, accountNo, modelName, baseURL, apiK
 
 	// 2) 装配检索增强器；Agent/MCP 留待 ensureAgent 懒建
 	return &AutoRouterModel{
-		retrieval:  NewRetrievalModifier(planner, engine, accountNo),
-		llm:        llm,
-		mcpBaseURL: mcpBaseURL,
+		retrieval:       NewRetrievalModifier(planner, engine, accountNo),
+		llm:             llm,
+		mcpBaseURL:      mcpBaseURL,
+		contextRepo:     contextRepo,
+		contextCfg:      contextCfg.normalized(),
+		checkpointStore: checkpointStore,
 	}, nil
 }
 
 // 编译期断言：AutoRouterModel 必须满足领域模型端口。
 var _ chat.Model = (*AutoRouterModel)(nil)
 
-// ensureAgent 懒加载 ReAct Agent：首次调用时连接 MCP Server、拉取并转换工具、构建带工具循环的 Agent。
+// ensureAgent 懒加载 ADK Agent：首次调用时连接 MCP Server、拉取并转换工具、构建带工具循环的 Agent。
 //
 // 降级策略（对齐计划「MCP 工具临时不可用时降级为纯生成」）：
 //   - mcpBaseURL 为空 → 直接构建无工具 Agent 并缓存（无 MCP 可重试，纯生成形态稳定）。
 //   - MCP 连接或工具拉取失败 → 本次构建无工具 Agent 供调用，但不缓存 agent，
 //     下次调用会重新尝试连接 MCP，避免 Server 临时不可用导致永久丢失工具能力。
 //   - 成功构建带工具 Agent → 缓存复用，避免重复连接。
-func (m *AutoRouterModel) ensureAgent(ctx context.Context) (*react.Agent, error) {
+func (m *AutoRouterModel) ensureAgent(ctx context.Context) (*adk.ChatModelAgent, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -119,7 +138,7 @@ func (m *AutoRouterModel) ensureAgent(ctx context.Context) (*react.Agent, error)
 		return agent, nil
 	}
 
-	// 2b) 按工具集组装 ReAct Agent（tools 可为空）
+	// 2) 按工具集组装 ADK Agent（tools 可为空）
 	agent, err := m.buildAgent(ctx, tools)
 	if err != nil {
 		// 已连上 MCP 但 Agent 构建失败：释放客户端，避免泄漏
@@ -170,24 +189,28 @@ func (m *AutoRouterModel) loadTools(ctx context.Context) ([]tool.BaseTool, bool,
 	return tools, true, nil
 }
 
-// buildAgent 用 ReAct 组装 Agent：ToolCallingModel + 默认工具集 + 系统提示 MessageModifier。
-//
-// tools 为空时不注入 ToolsConfig，Agent 退化为纯生成（仍可承载检索增强后的输入）。
-// MessageModifier 只做幂等的系统提示注入——它在 ReAct 每轮模型调用前都会被触发，
-// 因此不能承载检索（检索是 pre-generation，已由 RetrievalModifier 在 Agent 调用前完成）。
-func (m *AutoRouterModel) buildAgent(ctx context.Context, tools []tool.BaseTool) (*react.Agent, error) {
-	cfg := &react.AgentConfig{
-		ToolCallingModel: m.llm,
-		// 每轮模型调用前注入系统提示；必须保持幂等，勿在此做检索
-		MessageModifier: func(_ context.Context, in []*schema.Message) []*schema.Message {
-			return append([]*schema.Message{schema.SystemMessage(autoSystemPrompt)}, in...)
-		},
+// buildAgent 组装 ADK ChatModelAgent：主模型、默认工具集、基础指令和上下文中间件。
+// tools 为空时不注入 ToolsConfig，Agent 退化为纯生成；检索仍在进入 Runner 前一次性完成。
+func (m *AutoRouterModel) buildAgent(ctx context.Context, tools []tool.BaseTool) (*adk.ChatModelAgent, error) {
+	handlers, err := m.buildContextHandlers(ctx)
+	if err != nil {
+		return nil, err
 	}
-	// 有工具才挂 ToolsNode；无工具时仍可直接自然语言生成
+	cfg := &adk.ChatModelAgentConfig{
+		Name:          "goai-auto-agent",
+		Description:   "GoAI 自动编排助手，支持检索、工具调用、摘要和分层记忆",
+		Instruction:   autoSystemPrompt,
+		Model:         m.llm,
+		MaxIterations: 12,
+		Handlers:      handlers,
+	}
+	// 有工具才挂 ToolsNode；无工具时 ADK Agent 仍可直接自然语言生成。
 	if len(tools) > 0 {
-		cfg.ToolsConfig = compose.ToolsNodeConfig{Tools: tools}
+		cfg.ToolsConfig = adk.ToolsConfig{
+			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools},
+		}
 	}
-	return react.NewAgent(ctx, cfg)
+	return adk.NewChatModelAgent(ctx, cfg)
 }
 
 // toolNames 收集工具集的可读名称，供观测日志记录可用工具。
@@ -215,9 +238,9 @@ func (m *AutoRouterModel) closeMCP() {
 	}
 }
 
-// Generate 同步生成：先一次性检索增强，再由 ReAct Agent 完成生成（可能多轮工具调用）。
+// Generate 同步生成：先恢复记忆并完成一次性检索增强，再由 ADK Agent 生成。
 func (m *AutoRouterModel) Generate(ctx context.Context, history []chat.Message) (string, error) {
-	// 步骤 1：确保 ReAct Agent 可用（含 MCP 懒加载 / 降级）
+	// 步骤 1：确保 ADK Agent 可用（含 MCP 懒加载 / 降级）
 	agent, err := m.ensureAgent(ctx)
 	if err != nil {
 		logger.Error("AutoRouterModel Generate ensureAgent failed",
@@ -225,12 +248,19 @@ func (m *AutoRouterModel) Generate(ctx context.Context, history []chat.Message) 
 		return "", fmt.Errorf("auto router ensure agent failed: %v", err)
 	}
 
-	// 步骤 2：进入 Agent 前做一次性检索增强（Planner 决策 + 可选 RAG）
-	messages := m.retrieval.Modify(ctx, history)
+	// 步骤 2：恢复持久化分层记忆，再做一次性检索增强。
+	// RetrievalModifier 仍只运行一次，避免在 ReAct 工具循环中重复检索。
+	ctx, memoryMessages := m.prepareMemoryContext(ctx, history)
+	messages := m.retrieval.ModifyPrepared(ctx, history, memoryMessages)
 
-	// 步骤 3：ReAct 生成（模型可按需 native tool calling），带计时供观测 latency.answer_ms
+	// 步骤 3：通过官方 Runner 运行 ADK Agent，并挂载 Redis checkpoint。
 	answerStart := time.Now()
-	out, err := agent.Generate(ctx, messages)
+	runner := adk.NewRunner(ctx, adk.RunnerConfig{
+		Agent:           agent,
+		EnableStreaming: false,
+		CheckPointStore: m.checkpointStore,
+	})
+	content, err := consumeAgentEvents(runner.Run(ctx, messages, adk.WithCheckPointID(checkpointID(history))), nil)
 	if err != nil {
 		logger.Error("AutoRouterModel Generate failed",
 			"accountNo", m.retrieval.accountNo,
@@ -241,13 +271,13 @@ func (m *AutoRouterModel) Generate(ctx context.Context, history []chat.Message) 
 	logger.Info("AutoRouterModel Generate done",
 		"accountNo", m.retrieval.accountNo,
 		"latency.answer_ms", time.Since(answerStart).Milliseconds())
-	return out.Content, nil
+	return content, nil
 }
 
-// Stream 流式生成：先一次性检索增强，再由 ReAct Agent 流式产出最终回复。
+// Stream 流式生成：先恢复记忆并完成一次性检索增强，再由 ADK Agent 流式产出最终回复。
 // 工具调用阶段不向前端分片，与旧 MCPModel 行为一致。
 func (m *AutoRouterModel) Stream(ctx context.Context, history []chat.Message, cb chat.StreamCallback) (string, error) {
-	// 步骤 1：确保 ReAct Agent 可用（含 MCP 懒加载 / 降级）
+	// 步骤 1：确保 ADK Agent 可用（含 MCP 懒加载 / 降级）
 	agent, err := m.ensureAgent(ctx)
 	if err != nil {
 		logger.Error("AutoRouterModel Stream ensureAgent failed",
@@ -255,45 +285,89 @@ func (m *AutoRouterModel) Stream(ctx context.Context, history []chat.Message, cb
 		return "", fmt.Errorf("auto router ensure agent failed: %v", err)
 	}
 
-	// 步骤 2：进入 Agent 前做一次性检索增强（Planner 决策 + 可选 RAG）
-	messages := m.retrieval.Modify(ctx, history)
+	// 步骤 2：恢复持久化分层记忆，再做一次性检索增强。
+	ctx, memoryMessages := m.prepareMemoryContext(ctx, history)
+	messages := m.retrieval.ModifyPrepared(ctx, history, memoryMessages)
 
-	// 步骤 3：开启 ReAct 流式输出（带计时供观测 latency.answer_ms，覆盖到首字+全程）
+	// 步骤 3：开启 ADK Runner 流式输出（带计时供观测 latency.answer_ms）。
 	answerStart := time.Now()
-	stream, err := agent.Stream(ctx, messages)
+	runner := adk.NewRunner(ctx, adk.RunnerConfig{
+		Agent:           agent,
+		EnableStreaming: true,
+		CheckPointStore: m.checkpointStore,
+	})
+	content, err := consumeAgentEvents(runner.Run(ctx, messages, adk.WithCheckPointID(checkpointID(history))), cb)
 	if err != nil {
-		logger.Error("AutoRouterModel Stream start failed",
+		logger.Error("AutoRouterModel Stream recv failed",
 			"accountNo", m.retrieval.accountNo,
 			"latency.answer_ms", time.Since(answerStart).Milliseconds(),
 			"err", err)
 		return "", fmt.Errorf("auto router stream failed: %v", err)
 	}
-	defer stream.Close()
-
-	// 步骤 4：聚合并回调有内容的最终回复分片
-	var full strings.Builder
-	for {
-		msg, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			logger.Error("AutoRouterModel Stream recv failed",
-				"accountNo", m.retrieval.accountNo,
-				"latency.answer_ms", time.Since(answerStart).Milliseconds(),
-				"err", err)
-			return "", fmt.Errorf("auto router stream recv failed: %v", err)
-		}
-		// 工具调用中间态 Content 为空，自然跳过；只把最终自然语言分片推给前端
-		if len(msg.Content) > 0 {
-			full.WriteString(msg.Content)
-			cb(msg.Content)
-		}
-	}
 	logger.Info("AutoRouterModel Stream done",
 		"accountNo", m.retrieval.accountNo,
 		"latency.answer_ms", time.Since(answerStart).Milliseconds())
+	return content, nil
+}
+
+// consumeAgentEvents 统一消费同步和流式 Runner 事件。
+// 工具调用事件与空的中间 assistant 消息不会推送给前端，只聚合最终自然语言内容。
+func consumeAgentEvents(iter *adk.AsyncIterator[*adk.AgentEvent], cb chat.StreamCallback) (string, error) {
+	var full strings.Builder
+	for {
+		event, ok := iter.Next()
+		if !ok {
+			break
+		}
+		if event == nil {
+			continue
+		}
+		if event.Err != nil {
+			return "", event.Err
+		}
+		if event.Output == nil || event.Output.MessageOutput == nil {
+			continue
+		}
+		output := event.Output.MessageOutput
+		if output.Role != schema.Assistant {
+			continue
+		}
+		if output.IsStreaming {
+			for {
+				msg, err := output.MessageStream.Recv()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return "", err
+				}
+				if msg == nil || msg.Content == "" {
+					continue
+				}
+				full.WriteString(msg.Content)
+				if cb != nil {
+					cb(msg.Content)
+				}
+			}
+			continue
+		}
+		if output.Message == nil || output.Message.Content == "" {
+			continue
+		}
+		full.WriteString(output.Message.Content)
+		if cb != nil {
+			cb(output.Message.Content)
+		}
+	}
 	return full.String(), nil
+}
+
+func checkpointID(history []chat.Message) string {
+	if len(history) == 0 {
+		return "goai-empty-run"
+	}
+	last := history[len(history)-1]
+	return "goai:" + last.AccountNo + ":" + last.SessionID + ":" + last.ID
 }
 
 // Type 返回模型类型标识。

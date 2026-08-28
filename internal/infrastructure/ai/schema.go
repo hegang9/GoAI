@@ -19,7 +19,12 @@ func toSchemaMessages(history []chat.Message) []*schema.Message {
 		if m.IsUser {
 			role = schema.User
 		}
-		out = append(out, &schema.Message{Role: role, Content: m.Content})
+		out = append(out, &schema.Message{
+			Role:    role,
+			Content: m.Content,
+			// 稳定消息 ID 只作为上下文水位元数据，不会进入模型可见正文。
+			Extra: map[string]any{messageIDExtraKey: m.ID},
+		})
 	}
 	return out
 }

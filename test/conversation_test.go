@@ -88,3 +88,21 @@ func TestConversationAddMessageWithoutPersist(t *testing.T) {
 		t.Fatalf("replay should not persist, but got %d saved", len(sink.saved))
 	}
 }
+
+// TestConversationRestoreMessagePreservesID 校验冷会话回放不会重新生成消息 ID，
+// 从而保证会话摘要保存的覆盖水位在服务重启后仍可定位。
+func TestConversationRestoreMessagePreservesID(t *testing.T) {
+	conv := chat.NewConversation(&fakeModel{}, "session-3", &fakeSink{})
+	conv.RestoreMessage(chat.Message{
+		ID:        "persisted-message-id",
+		SessionID: "session-3",
+		AccountNo: "acc-1",
+		Content:   "历史回答",
+		IsUser:    false,
+	})
+
+	messages := conv.Messages()
+	if len(messages) != 1 || messages[0].ID != "persisted-message-id" {
+		t.Fatalf("restored messages = %+v", messages)
+	}
+}

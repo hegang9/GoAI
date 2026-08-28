@@ -86,6 +86,7 @@ func migrate(db *gorm.DB) error {
 		new(UserPO),
 		new(SessionPO),
 		new(MessagePO),
+		new(ConversationContextPO),
 		new(DelayTaskPO),
 	)
 }

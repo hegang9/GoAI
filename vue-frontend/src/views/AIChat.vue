@@ -41,12 +41,12 @@
           :disabled="uploading"
           @click="triggerFileUpload"
         >
-          📎 上传文档(.md/.txt)
+          📎 上传文档(.md/.txt/.pdf/.docx)
         </button>
         <input
           ref="fileInput"
           type="file"
-          accept=".md,.txt,text/markdown,text/plain"
+          accept=".md,.txt,.pdf,.docx,text/markdown,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           style="display: none"
           @change="handleFileUpload"
         />

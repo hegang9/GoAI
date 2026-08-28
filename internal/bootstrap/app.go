@@ -79,6 +79,7 @@ func New() (*App, error) {
 	userRepo := persistence.NewUserRepository(db)
 	sessionRepo := persistence.NewSessionRepository(db)
 	messageRepo := persistence.NewMessageRepository(db)
+	contextRepo := persistence.NewContextRepository(db)
 
 	// —— 缓存（Redis）：验证码存储 + 向量索引存储 ——
 	// redisCtx 用于限制启动阶段 Redis Ping 的最长等待时间，避免依赖异常时启动过程长时间阻塞。
@@ -101,6 +102,8 @@ func New() (*App, error) {
 	logger.Info("redis init success")
 	captchaStore := redisstore.NewCaptchaStore(rdb)
 	vectorStore := redisstore.NewVectorStore(rdb)
+	checkpointTTL := time.Duration(conf.CheckpointTTLMinutes) * time.Minute
+	checkpointStore := ai.NewRedisCheckpointStore(rdb, checkpointTTL)
 
 	// —— RAG 引擎 + AI 模型工厂 ——
 	// 精排器（reranker）：仅在配置开启时构造，复用统一的 AI API Key；
@@ -154,11 +157,19 @@ func New() (*App, error) {
 	// 工厂创建 auto / 4；auto 模型连接配置来自自洽的 [autoModelConfig]，独立于 RAG。
 	// RAG 的 query 改写与 filter 意图已由 planner 接管，旧 EnableQueryRewrite / EnableFilterIntent 不再装配。
 	modelFactory := ai.NewFactory(ai.FactoryConfig{
-		AutoModelName: conf.AutoModelName,
-		AutoBaseURL:   conf.AutoBaseURL,
-		AutoAPIKey:    conf.AutoAPIKey,
-		MCPBaseURL:    conf.McpConfig.BaseURL,
-		Planner:       planner,
+		AutoModelName:     conf.AutoModelName,
+		AutoBaseURL:       conf.AutoBaseURL,
+		AutoAPIKey:        conf.AutoAPIKey,
+		MCPBaseURL:        conf.McpConfig.BaseURL,
+		Planner:           planner,
+		ContextRepository: contextRepo,
+		ContextConfig: ai.ContextConfig{
+			Enabled:                conf.ContextManagementConfig.Enabled,
+			SummaryTriggerTokens:   conf.SummaryTriggerTokens,
+			RecentTurns:            conf.RecentTurns,
+			ToolClearTriggerTokens: conf.ToolClearTriggerTokens,
+		},
+		CheckPointStore: checkpointStore,
 	}, ragEngine)
 
 	// —— 消息队列（RabbitMQ）：业务消息统一进入 Topic Exchange 和消费者组链路 ——

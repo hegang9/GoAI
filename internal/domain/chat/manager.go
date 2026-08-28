@@ -102,10 +102,8 @@ func (m *Manager) ReplayMessages(
 		return err
 	}
 	for _, msg := range msgs {
-		// persist=false：回放阶段不写 MQ，仅填充内存 messages 切片。
-		if err := conv.AddMessage(msg.Content, msg.AccountNo, msg.IsUser, false); err != nil {
-			return err
-		}
+		// 保留数据库中的稳定消息 ID，使摘要覆盖水位在冷加载后仍然可定位。
+		conv.RestoreMessage(msg)
 	}
 	return nil
 }

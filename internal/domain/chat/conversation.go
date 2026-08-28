@@ -23,6 +23,9 @@ type Conversation struct {
 	messages []Message
 	// mu 保护消息历史的并发读写。
 	mu sync.RWMutex
+	// turnMu 串行化一个完整的用户提问 -> 模型生成 -> 助手消息落库过程。
+	// 仅保护单次 append 的 mu 无法阻止两个并发请求交错，摘要水位也会因此失真。
+	turnMu sync.Mutex
 }
 
 // NewConversation 创建会话聚合实例。
@@ -42,8 +45,6 @@ func (c *Conversation) SessionID() string { return c.sessionID }
 func (c *Conversation) ModelType() string { return c.model.Type() }
 
 // AddMessage 追加一条消息到内存历史，并在 persist 为真时通过 Sink 异步持久化。
-//
-// 回放历史时传入 persist=false：仅重建内存上下文，不再二次落库。
 func (c *Conversation) AddMessage(content, accountNo string, isUser, persist bool) error {
 	msg := Message{
 		ID:        id.GenerateUUID(),
@@ -53,14 +54,26 @@ func (c *Conversation) AddMessage(content, accountNo string, isUser, persist boo
 		IsUser:    isUser,
 	}
 	// 统一加锁，避免同步与流式路径并发追加产生竞态。
-	c.mu.Lock()
-	c.messages = append(c.messages, msg)
-	c.mu.Unlock()
+	// c.mu.Lock()
+	// c.messages = append(c.messages, msg)
+	// c.mu.Unlock()
+
+	c.RestoreMessage(msg)
 
 	if persist && c.sink != nil {
 		return c.sink.Save(msg)
 	}
 	return nil
+}
+
+// RestoreMessage 把数据库中的原始消息按原 ID 回放到内存。
+//
+// 回放不能复用 AddMessage：后者会生成新 ID，导致摘要快照保存的 CoveredMessageID
+// 在服务重启后无法定位。该方法不触发 MessageSink，避免历史消息二次落库。
+func (c *Conversation) RestoreMessage(msg Message) {
+	c.mu.Lock()
+	c.messages = append(c.messages, msg)
+	c.mu.Unlock()
 }
 
 // Messages 返回消息历史的拷贝，避免外部修改内部切片。
@@ -77,6 +90,9 @@ func (c *Conversation) Messages() []Message {
 // filter 为 RAG 检索的元数据过滤范围；非检索模型会忽略它。
 // 通过 WithRetrieveFilter 携带进 ctx，由检索增强路径取出，避免修改通用 Model 端口签名。
 func (c *Conversation) Generate(ctx context.Context, accountNo, question string, filter RAGFilter) (string, error) {
+	c.turnMu.Lock()
+	defer c.turnMu.Unlock()
+
 	if err := c.AddMessage(question, accountNo, true, true); err != nil {
 		return "", err
 	}
@@ -98,6 +114,9 @@ func (c *Conversation) Generate(ctx context.Context, accountNo, question string,
 //
 // filter 为 RAG 检索的元数据过滤范围；通过 WithRetrieveFilter 携带进 ctx。
 func (c *Conversation) Stream(ctx context.Context, accountNo, question string, filter RAGFilter, cb StreamCallback) (string, error) {
+	c.turnMu.Lock()
+	defer c.turnMu.Unlock()
+
 	if err := c.AddMessage(question, accountNo, true, true); err != nil {
 		return "", err
 	}

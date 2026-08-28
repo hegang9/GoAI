@@ -13,10 +13,8 @@ import (
 
 // RetrievalModifier 按 TurnPlan 对输入消息做一次性检索增强（pre-generation 上下文准备）。
 //
-// 设计约束：检索是 pre-generation 的上下文准备，必须在进入 ReAct 循环前完成一次，
-// 不能放进 ReAct 的 MessageModifier——后者在每轮模型调用前都会被触发，且循环中途
-// 「最后一条消息」是工具结果而非用户消息，重复检索既昂贵又会错误地修改工具调用结果。
-// 因此本类型不实现 react.MessageModifier，而是一个在 agent 调用前执行的一次性变换。
+// 设计约束：检索必须在进入 ADK Agent 循环前完成一次。循环中途最后一条消息可能是
+// 工具结果；重复检索既昂贵，也会错误地修改工具调用结果。
 //
 // 职责去重：planner 已产出 RetrievalQuery 与 DocFilter，这里不再做 query 改写与
 // filter 解析，直接用 planner 输出执行检索（取代旧 RAGModel.buildRAGMessages）。
@@ -31,7 +29,7 @@ func NewRetrievalModifier(planner *Planner, engine *raginfra.Engine, accountNo s
 	return &RetrievalModifier{planner: planner, engine: engine, accountNo: accountNo}
 }
 
-// Modify 按 TurnPlan 决定是否检索并增强最后一条用户消息，返回可直接喂给 ReAct Agent 的消息。
+// Modify 按 TurnPlan 决定是否检索并增强最后一条用户消息，返回可直接交给 ADK Agent 的消息。
 //
 // 流程：
 //  1. planner 为 nil（disabled）→ 透传原消息，纯生成
@@ -40,7 +38,13 @@ func NewRetrievalModifier(planner *Planner, engine *raginfra.Engine, accountNo s
 //  4. need_retrieval=true → 用 plan.RetrievalQuery 与 plan.DocFilter 检索，
 //     命中则替换最后一条用户消息为增强 prompt；检索失败或无命中则透传原消息
 func (r *RetrievalModifier) Modify(ctx context.Context, history []chat.Message) []*schema.Message {
-	messages := toSchemaMessages(history)
+	return r.ModifyPrepared(ctx, history, toSchemaMessages(history))
+}
+
+// ModifyPrepared 与 Modify 使用相同检索流程，但允许调用方传入已经过摘要/分层记忆恢复的模型消息。
+// Planner 仍接收原始领域历史以保持检索决策信息完整，最终 RAG prompt 则写入有界上下文的最后一条用户消息。
+func (r *RetrievalModifier) ModifyPrepared(ctx context.Context, history []chat.Message, prepared []*schema.Message) []*schema.Message {
+	messages := prepared
 	if len(messages) == 0 || r.planner == nil {
 		return messages
 	}

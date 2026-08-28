@@ -178,6 +178,7 @@ go run ./cmd/planbench -split test -limit 3
 | `[voiceServiceConfig]` | 百度 TTS API Key 和 Secret Key                                                                                                                                                                                                                                 |
 | `[autoModelConfig]`    | auto 主力模型的对话模型名、Base URL 与 API Key（需支持 tool calling）；完全自洽，独立于 RAG                                                                                                                                                                    |
 | `[chatReplayConfig]`   | 会话历史回放：启动预热最近 N 个活跃会话、默认模型类型                                                                                                                                                                                                          |
+| `[contextManagementConfig]` | Eino v0.8.0 上下文管理：摘要触发阈值、近期原文轮次、旧工具结果清理阈值与中断 checkpoint TTL                                                                                                                                          |
 | `[plannerConfig]`      | planner 检索决策器：是否启用、轻量模型名/BaseURL/APIKey、回溯窗口与超时                                                                                                                                                                                        |
 | `[mcpConfig]`          | MCP 工具服务 Streamable HTTP 端点（`baseUrl`）；auto 模型懒连接拉取工具集，为空时退化为无工具纯生成                                                                                                                                                            |
 | `[imageServiceConfig]` | ONNX 图像识别模型与标签文件路径（`modelPath` / `labelPath`），随部署环境变化                                                                                                                                                                                   |
@@ -219,6 +220,45 @@ defaultModelType = "auto"    # 启动预热与查询历史时的默认模型类�
 ```
 
 `sessionLimit` 或 `defaultModelType` 未配置时，默认分别为 `50` 和 `"auto"`。
+
+`[contextManagementConfig]` 示例：
+
+```toml
+[contextManagementConfig]
+enabled = true
+summaryTriggerTokens = 24000   # 超过该估算 token 数后压缩较早历史
+recentTurns = 6                # 始终保留最近 6 个完整轮次和当前用户消息原文
+toolClearTriggerTokens = 20000 # 清理 ReAct 循环内较早的工具参数和结果
+checkpointTTLMinutes = 60      # Agent 被中断时，Redis checkpoint 的保留时间
+```
+
+`summaryTriggerTokens` 使用 Eino v0.8.0 Summarization 的默认轻量 token 估算器，并不等同于具体模型 tokenizer 的精确计数。阈值应低于模型上下文上限，为系统提示、RAG 文档、工具定义、工具结果和最终回答留出余量。配置项缺失或小于等于 0 时，运行时默认分别使用 `24000`、`6`、`20000` 和 `60`。
+
+### 对话压缩与分层记忆
+
+auto 模型已迁移到 Eino v0.8.0 ADK，并复用官方 `Summarization`、`Reduction` 和 Runner checkpoint。当前实现把“长期可审计数据”和“模型本轮真正看到的上下文”分开管理：
+
+| 层级 | 存储与内容 | 注入策略 |
+| ---- | ---------- | -------- |
+| 原始消息账本 | MySQL 消息表，保留完整用户/助手消息及稳定 `message_id` | 用于历史展示、审计、重新生成摘要；不会在已有摘要时全量注入模型 |
+| 近期记忆 | 摘要水位之后的原始消息，以及配置的最近 `recentTurns` 个完整轮次 | 每轮原文注入，保持细节、指代和对话连贯性 |
+| 会话摘要 | MySQL `conversation_contexts.summary` | 保存较早对话中的目标、事实、决定、结果和待办 |
+| 核心记忆 | MySQL `conversation_contexts.core_memory` | 只保存跨后续对话仍有价值的稳定偏好、长期约束、身份信息和安全边界；提示词禁止提取密码、令牌、密钥和模型推理过程 |
+
+每次请求先按 `account_no + session_id` 读取记忆快照，通过稳定的 `covered_message_id` 找到摘要水位，只把“核心记忆 + 会话摘要 + 水位后的原始消息”交给 Planner、RAG 和 Agent。上下文超过阈值时，官方 Summarization 只压缩可安全淘汰的较早完整轮次，保留近期轮次和当前未完成用户轮次，并在回调中原子 upsert 新快照。摘要读取或生成失败时会记录告警并回退到未压缩上下文；保存失败不阻断本轮回答，下一轮会从原始消息重新构建。
+
+官方 Reduction 当前只启用 Clear 阶段：当 ReAct 工具上下文过大时，清除较早工具调用参数和结果，保留最近两个工具结果。最小版本没有启用单个超大工具结果的文件外置，因为现有 Agent 尚未提供配套 `read_file` 工具；直接外置会让模型无法取回细节。
+
+Redis checkpoint 与聊天记忆用途不同：Runner 只在 Agent 产生 interrupt 时写入可恢复执行状态，普通聊天不会持续写 checkpoint；key 包含账号、会话和当前消息 ID，并通过 TTL 回收。当前 HTTP API 尚未暴露人工审批/恢复入口，因此这里只完成官方存储能力接入。
+
+后续升级建议按以下顺序推进：
+
+1. 为实际主模型接入精确 tokenizer，并同时统计系统提示、工具 schema、RAG 文档和输出预留预算，替代统一估算阈值。
+2. 增加对象存储或文件存储及受限 `read_file` 工具，再启用 Reduction 的单个超大工具结果外置；记录引用、校验和、租户和 TTL。
+3. 将记忆快照更新升级为基于 `version` 的 CAS，并增加会话级分布式锁，解决多实例同时处理同一会话时的水位竞争。
+4. 增加异步记忆巩固与语义情景记忆：只从已确认事实中提取候选，支持来源、置信度、过期时间、去重、纠错和按需检索，避免把所有长期记忆常驻提示词。
+5. 暴露记忆查看、纠正、删除和禁用接口，落实租户隔离、敏感信息过滤、审计与数据保留策略。
+6. 增加摘要压缩率、触发次数、token 节省、事实保真、回退次数、延迟与成本指标，并建立长会话回放评测集；之后再开放 interrupt 审批和 checkpoint 恢复 API。
 
 `[autoModelConfig]` 示例（auto 主力模型，独立于 RAG）：
 
@@ -350,9 +390,9 @@ go run ./cmd/server
 后端启动流程（全部在 `internal/bootstrap` 中显式装配，不再使用全局单例）：
 
 1. 初始化日志、加载配置。
-2. 连接 MySQL 并执行 GORM AutoMigrate，构建用户/会话/消息仓储。
-3. 连接 Redis，构建验证码存储与向量索引存储。
-4. 构建 RAG 引擎与 AI 模型工厂，连接 RabbitMQ 并创建业务 Topic Publisher（作为会话消息的持久化 Sink）。
+2. 连接 MySQL 并执行 GORM AutoMigrate，构建用户、会话、消息与会话上下文仓储。
+3. 连接 Redis，构建验证码存储、向量索引存储与 Eino Agent checkpoint 存储。
+4. 构建 RAG 引擎与基于 Eino v0.8.0 ADK 的 AI 模型工厂，连接 RabbitMQ 并创建消息发布器（作为会话消息的持久化 Sink）。
 5. 构建会话领域管理器，并按策略 B 回放最近 N 个活跃会话到内存（`persist=false`，不重复落库）；其余会话在访问时由应用层按需懒加载。
 6. 映射并校验 `[delayConfig]`，声明统一延迟拓扑，构造 Poller、LevelPublisher、Dispatcher、FinalPublisher、DispatcherConsumer 和各组 GroupConsumer；该配置必须启用，因为 persistence GroupConsumer 已是唯一消息落库消费者。
 7. 装配应用服务、接口处理器与路由；`App.Start` 启动延迟运行时，并在独立 goroutine 中通过 `http.Server` 监听 `[mainConfig]` 地址端口。
@@ -369,19 +409,18 @@ go run ./cmd/server
 各层职责与关键包：
 
 - **领域层 `internal/domain`**：定义业务实体与端口接口，不含任何框架依赖。
-  - `chat`：`Message`/`Session` 值对象、`Conversation` 聚合（追加消息并驱动模型生成）、`Manager` 领域服务（按用户/会话维度管理会话），以及 `Model`/`ModelFactory`/`MessageSink`/`MessageRepository`/`SessionRepository` 等端口。
+  - `chat`：`Message`/`Session`/`ContextSnapshot` 值对象、`Conversation` 聚合（串行化同一会话的完整 turn，并驱动模型生成）、`Manager` 领域服务，以及 `Model`/`ModelFactory`/`MessageSink`/`MessageRepository`/`SessionRepository`/`ContextRepository` 等端口。
   - `user`：`User` 实体与 `Repository`/`PasswordHasher`/`TokenIssuer`/`CaptchaStore`/`Mailer` 端口。
   - `rag`/`storage`/`image`/`tts`：RAG 索引、用户文档存储、图片识别、语音合成等端口。
 - **应用层 `internal/application`**：用例编排（`user`/`chat`/`file`/`image`/`tts`），只依赖领域端口，输出应用级结果类型。
 - **基础设施层 `internal/infrastructure`**：端口的具体实现（适配器）。
-  - `persistence`：GORM 持久化对象（PO，仅 `gorm` 标签映射表结构）与用户/会话/消息仓储实现；对外 JSON 由 `interfaces/http/dto` 定义。
-  - `cache/redis`：验证码存储与 RAG 向量索引存储。
-  - `mq/rabbitmq`：业务 Topic Publisher、Level/FinalPublisher、DispatcherConsumer、GroupConsumer 与统一拓扑声明。
+  - `persistence`：GORM 持久化对象（PO，仅 `gorm` 标签映射表结构）与用户/会话/消息/上下文快照仓储实现；对外 JSON 由 `interfaces/http/dto` 定义。
+  - `cache/redis`：验证码存储与 RAG 向量索引存储；`ai/checkpoint_store.go` 复用同一 Redis 客户端实现 Eino `CheckPointStore`。
+  - `mq/rabbitmq`：消息发布器（实现 `MessageSink`）与消费落库。
   - `ai`：OpenAI / Ollama / auto 模型实现与模型工厂，`schema.go` 负责领域消息与模型消息互转。
-    - auto 模型（`auto_router.go` + `planner.go` + `retrieval_modifier.go` + `tools.go`）是统一自动编排模型：每轮先由 `Planner` 决策「是否检索」并产出 `TurnPlan`（含 query 改写与 doc_filter，取代旧 RAG 的 query rewrite / filter intent 两步），再由 `RetrievalModifier` 在进入 Agent 前做一次性检索增强（替换最后一条用户消息），最后交给 Eino `flow/agent/react` 的 ReAct Agent 生成。工具默认注入该账号可用的 MCP 工具集，由模型在生成中按需 native function calling 自主调用；检索是 pre-generation 上下文准备，不进 ReAct 的 `MessageModifier`（后者每轮触发、且循环中途最后一条是工具结果，重复检索会改错位置）。
+    - auto 模型（`auto_router.go` + `memory.go` + `planner.go` + `retrieval_modifier.go` + `tools.go`）是统一自动编排模型：先恢复核心记忆、会话摘要与近期原文，再由 `Planner` 决策是否检索并产出 `TurnPlan`，由 `RetrievalModifier` 做一次性 RAG 增强，最后交给 Eino v0.8.0 ADK `ChatModelAgent` 和 `Runner` 生成。Agent 挂载官方 Summarization/Reduction 中间件和 Redis checkpoint；MCP 工具由模型按需 native function calling 自主调用。
     - MCP 工具由 `eino-ext/components/tool/mcp` 适配器从 MCP Server 批量自动转换（`mcp.GetTools`），新增工具时本层零改动；MCP 客户端采用**懒连接**，首次 `Generate`/`Stream` 才建立连接、拉取工具并构建 Agent，MCP 临时不可用时降级为纯生成（不缓存无工具 Agent，下次重试以自动恢复工具能力）。
     - Phase 3 后旧 `RAGModel`（`rag.go`）/`MCPModel`（`mcp.go`）已退役，工厂不再创建 `"2"`/`"3"`，其能力由 auto 统一承载；这两个文件暂作死代码保留，待后续手动清理。
-  - `rag`：向量生成、文档加载/切块、索引、检索、提示词构造。
   - `rag`：向量生成、文档加载/切块（Eino `document.Transformer` 切分器：非 Markdown 走递归切分、`.md` 走标题感知切分，失败时回退定长滑窗）、索引、检索、提示词构造。
   - `security`：bcrypt 密码哈希与 JWT 签发/解析；`email`/`image`/`tts`/`storage` 为其余适配器。
 - **接口层 `internal/interfaces/http`**：`router`/`controller`/`dto`/`middleware`/`sse`/`httpx`，负责协议绑定与响应。
@@ -520,7 +559,7 @@ type Response struct {
 
 ## 注意事项
 
-- RAG 文件上传允许 `.md` / `.txt` / `.pdf` / `.docx` 文件；上传后先抽取纯文本，再用 Eino `document.Transformer` 切分器切块并写入向量索引：`.md` 走 Markdown 标题感知切分（保留标题层级到元数据），其余走递归切分（按段落/换行/中英文句末标点等自然边界递归，避免从句中硬断），切分器创建或执行失败时自动回退到原定长滑窗实现。切块结果仍以 `chunk_N` 编号并回填 `source`，与既有索引/检索完全兼容（PDF 扫描件无法抽取文本，会因内容为空而上传失败）。变更切分策略后，建议对存量知识库重新建索引以保持分块一致。
+- 前端上传控件与后端校验均允许 `.md` / `.txt` / `.pdf` / `.docx` 文件；上传后先抽取纯文本，再用 Eino `document.Transformer` 切分器切块并写入向量索引：`.md` 走 Markdown 标题感知切分（保留标题层级到元数据），其余走递归切分（按段落/换行/中英文句末标点等自然边界递归，避免从句中硬断），切分器创建或执行失败时自动回退到原定长滑窗实现。切块结果仍以 `chunk_N` 编号并回填 `source`，与既有索引/检索完全兼容（PDF 扫描件无法抽取文本，会因内容为空而上传失败）。变更切分策略后，建议对存量知识库重新建索引以保持分块一致。
 - RAG 已支持多文档知识库：上传为追加，不再清理已有文档；向量索引按账号聚合（`rag_docs:{accountNo}:idx`），单个文档以 `rag_docs:{accountNo}:{storedName}:` 前缀存储，可按文档粒度删除。
 - 检索阶段会按 `topK` 召回并用 `maxDistance` 过滤不相关结果；过滤后为空（或账号无文档）时自动跳过检索增强，走普通对话，避免污染闲聊。
 - `rerankEnable = true` 时启用两阶段检索：召回放大到 `recallTopK`、距离粗筛后交由 reranker 精排重排、截断到 `rerankTopK`，并可按 `rerankMinScore` 兜底过滤；精排结果的相关分写入文档 `rerank_score` 元数据。精排器未注入或调用失败时自动降级为向量排序，不中断链路。

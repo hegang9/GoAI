@@ -94,6 +94,28 @@ type MessagePO struct {
 // TableName 显式指定消息表名。
 func (MessagePO) TableName() string { return "messages" }
 
+// ConversationContextPO 保存会话历史的派生记忆视图。
+// 原始消息仍由 MessagePO 完整保存；这里的摘要和核心记忆均可被重新生成。
+type ConversationContextPO struct {
+	// SessionID 同时作为主键，确保一个会话只有一份当前快照。
+	SessionID string `gorm:"primaryKey;type:varchar(36);column:session_id"`
+	// AccountNo 参与所有读写条件，防止不同账号之间发生记忆串线。
+	AccountNo string `gorm:"type:varchar(50);not null;index;column:account_no"`
+	// CoreMemory 保存少量、需要持续可见的稳定事实和用户约束。
+	CoreMemory string `gorm:"type:text;column:core_memory"`
+	// Summary 保存较早会话的任务状态、决定、结果和待办摘要。
+	Summary string `gorm:"type:mediumtext;column:summary"`
+	// CoveredMessageID 标记摘要已经覆盖到哪条原始消息。
+	CoveredMessageID string `gorm:"type:varchar(36);column:covered_message_id"`
+	// Version 每次覆盖保存时递增，为后续升级 CAS 乐观锁保留数据基础。
+	Version   uint64 `gorm:"not null;default:1;column:version"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// TableName 显式固定表名，避免领域命名调整影响数据库契约。
+func (ConversationContextPO) TableName() string { return "conversation_contexts" }
+
 // DelayTaskPO 延迟任务持久化对象，对应数据库 delay_tasks 表。
 type DelayTaskPO struct {
 	// ID 是全链路稳定的任务幂等键。
